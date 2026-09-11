@@ -107,9 +107,9 @@ def simple_baseline_forecast(df, forecast_days=30, trend_window=30, method='line
     })
     return forecast_df
 
-def advanced_arima_forecast(df, forecast_days=30, order=(1, 1, 1)):
+def advanced_arima_forecast(df, forecast_days=30, order=(1, 1, 1), auto_fit=True):
     """
-    statsmodels ARIMA 모델을 사용하여 시계열 자기회귀 및 이동평균 오차 기반 향후 주가를 예측합니다.
+    statsmodels ARIMA 모델을 사용하고 AIC 최적 차수(p,d,q)를 자동 검색하여 향후 주가를 예측합니다.
     """
     df_clean = df.dropna(subset=['Close']).copy()
     if len(df_clean) < 15:
@@ -118,8 +118,22 @@ def advanced_arima_forecast(df, forecast_days=30, order=(1, 1, 1)):
     ts = df_clean['Close'].values
     last_date = df_clean['Date'].max()
     
+    best_order = order
+    if auto_fit:
+        best_aic = float('inf')
+        for p in range(3):
+            for d in [1]:
+                for q in range(3):
+                    try:
+                        m = ARIMA(ts, order=(p, d, q)).fit()
+                        if m.aic < best_aic:
+                            best_aic = m.aic
+                            best_order = (p, d, q)
+                    except Exception:
+                        pass
+                        
     try:
-        model = ARIMA(ts, order=order)
+        model = ARIMA(ts, order=best_order)
         res = model.fit()
         forecast_res = res.get_forecast(steps=forecast_days)
         forecast_values = forecast_res.predicted_mean
@@ -137,6 +151,26 @@ def advanced_arima_forecast(df, forecast_days=30, order=(1, 1, 1)):
         'Forecast_Close': forecast_values,
         'Upper_Bound': upper_bound,
         'Lower_Bound': lower_bound
+    })
+    return forecast_df
+
+def ensemble_forecast(df, forecast_days=30, trend_window=30):
+    """
+    Auto-ARIMA, Holt 지수평활, 선형회귀(OLS) 모델을 결합한 최적 가중 앙상블(Weighted Ensemble) 예측
+    """
+    f_arima = advanced_arima_forecast(df, forecast_days=forecast_days, auto_fit=True)
+    f_holt = advanced_holt_forecast(df, forecast_days=forecast_days)
+    f_ols = simple_baseline_forecast(df, forecast_days=forecast_days, trend_window=trend_window, method='linear')
+    
+    ens_vals = 0.5 * f_arima['Forecast_Close'] + 0.3 * f_holt['Forecast_Close'] + 0.2 * f_ols['Forecast_Close']
+    ens_upper = 0.5 * f_arima['Upper_Bound'] + 0.3 * f_holt['Upper_Bound'] + 0.2 * f_ols['Upper_Bound']
+    ens_lower = 0.5 * f_arima['Lower_Bound'] + 0.3 * f_holt['Lower_Bound'] + 0.2 * f_ols['Lower_Bound']
+    
+    forecast_df = pd.DataFrame({
+        'Date': f_arima['Date'],
+        'Forecast_Close': ens_vals,
+        'Upper_Bound': ens_upper,
+        'Lower_Bound': ens_lower
     })
     return forecast_df
 
@@ -176,12 +210,14 @@ def advanced_holt_forecast(df, forecast_days=30, damped_trend=True):
     })
     return forecast_df
 
-def advanced_time_series_forecast(df, forecast_days=30, trend_window=30, method='arima', trend_bias=0.0):
+def advanced_time_series_forecast(df, forecast_days=30, trend_window=30, method='ensemble', trend_bias=0.0):
     """
-    통합 시계열 예측 엔트리 포인트 (ARIMA, Holt 지수평활, OLS 선형회귀, 이동평균)
+    통합 시계열 예측 엔트리 포인트 (최적 앙상블, Auto-ARIMA, Holt 지수평활, OLS 선형회귀, 이동평균)
     """
-    if method == 'arima':
-        return advanced_arima_forecast(df, forecast_days=forecast_days)
+    if method == 'ensemble':
+        return ensemble_forecast(df, forecast_days=forecast_days, trend_window=trend_window)
+    elif method == 'arima':
+        return advanced_arima_forecast(df, forecast_days=forecast_days, auto_fit=True)
     elif method == 'holt':
         return advanced_holt_forecast(df, forecast_days=forecast_days)
     else:
@@ -200,7 +236,8 @@ def evaluate_forecast_models(df, test_days=30):
     actuals = test_df['Close'].values
     
     methods = {
-        'ARIMA (자기회귀 모델)': 'arima',
+        '최적 앙상블 (Auto-ARIMA+Holt+OLS)': 'ensemble',
+        'Auto-ARIMA (AIC 최적화)': 'arima',
         'Holt 지수 평활법': 'holt',
         '선형 회귀 (OLS)': 'linear',
         '이동평균 (MA)': 'ma'
@@ -244,7 +281,8 @@ def validate_2024_to_2025_forecast(df):
     actual_2025 = df_2025['Close'].values
     
     methods = {
-        'ARIMA (자기회귀 모델)': 'arima',
+        '최적 앙상블 (Auto-ARIMA+Holt+OLS)': 'ensemble',
+        'Auto-ARIMA (AIC 최적화)': 'arima',
         'Holt 지수 평활법': 'holt',
         '선형 회귀 (OLS)': 'linear',
         '이동평균 (MA)': 'ma'
@@ -256,17 +294,15 @@ def validate_2024_to_2025_forecast(df):
     for label, code in methods.items():
         try:
             fc_df = advanced_time_series_forecast(df_2024, forecast_days=n_days_2025, method=code)
-            fc_df['Date'] = df_2025['Date'].values[:len(fc_df)]  # 2025년 실제 거래일 매핑
+            fc_df['Date'] = df_2025['Date'].values[:len(fc_df)]
             forecast_dfs[code] = fc_df
             
             preds_full = fc_df['Forecast_Close'].values[:len(actual_2025)]
             
-            # 1년 전체 평가
             mae_full = np.mean(np.abs(actual_2025 - preds_full))
             rmse_full = np.sqrt(np.mean((actual_2025 - preds_full) ** 2))
             mape_full = np.mean(np.abs((actual_2025 - preds_full) / actual_2025)) * 100
             
-            # 상반기 (6개월, 약 120 영업일) 평가
             half_n = min(120, len(actual_2025))
             mae_half = np.mean(np.abs(actual_2025[:half_n] - preds_full[:half_n]))
             mape_half = np.mean(np.abs((actual_2025[:half_n] - preds_full[:half_n]) / actual_2025[:half_n])) * 100

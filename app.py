@@ -170,13 +170,14 @@ st.sidebar.subheader("🔮 30일 예측 조건 조절")
 forecast_method = st.sidebar.selectbox(
     "예측 알고리즘 선택",
     options=[
-        "ARIMA (자기회귀 이동평균 - 추천)",
+        "최적 앙상블 (Auto-ARIMA + Holt + OLS) - 최고성능",
+        "Auto-ARIMA (AIC 최적 차수 탐색)",
         "Holt 지수 평활법 (최신 가중 추세)",
         "선형 회귀 추세선 (OLS Linear)",
         "이동평균 추세 (Moving Average)"
     ],
     index=0,
-    help="ARIMA와 Holt 지수평활법은 자기회귀 및 최신 가중 추세를 반영하여 높은 정확도를 제공합니다."
+    help="앙상블 모델은 ARIMA, Holt 지수평활, 선형회귀를 최적 가중 결합하여 개별 모델의 편향을 제거하고 정확도를 극대화합니다."
 )
 show_backtest = st.sidebar.checkbox("과거 30일 예측 백테스팅 평가(MAPE/RMSE) 표 표시", value=True)
 show_compare_all = st.sidebar.checkbox("모든 예측 모델 추세선 동시 비교 표시", value=False)
@@ -576,7 +577,9 @@ with tab4:
     if len(df) < trend_window:
         st.error(f"예측을 위해 최소 {trend_window}일 이상의 과거 데이터가 필요합니다.")
     else:
-        if "ARIMA" in forecast_method:
+        if "앙상블" in forecast_method:
+            method_code = 'ensemble'
+        elif "ARIMA" in forecast_method:
             method_code = 'arima'
         elif "Holt" in forecast_method:
             method_code = 'holt'
