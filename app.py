@@ -98,7 +98,7 @@ def load_data():
     df['Lower_Band'] = df['SMA_20'] - (df['Std_20'] * 2)
     
     df['Daily_Return'] = df['Close'].pct_change() * 100
-    df['YearMonth'] = df['Date'].dt.to_period('M')
+    df['YearMonth'] = df['Date'].dt.to_period('M').astype(str)
     df['DayOfWeek'] = df['Date'].dt.day_name()
     return df
 
@@ -159,7 +159,7 @@ if len(df) > 0:
     first_close = df['Close'].iloc[0]
     last_close = df['Close'].iloc[-1]
     change_val = last_close - first_close
-    change_pct = (change_val / first_close) * 100
+    change_pct = (change_val / first_close) * 100 if first_close != 0 else 0
     
     max_price = df['High'].max()
     min_price = df['Low'].min()
@@ -193,7 +193,7 @@ if len(df) > 0:
     with col5:
         st.metric(
             label="일일 변동성 (표준편차)",
-            value=f"{volatility:.2f}%"
+            value=f"{volatility:.2f}%" if pd.notna(volatility) else "N/A"
         )
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -362,6 +362,7 @@ with tab2:
         
         day_stats = df.groupby('DayOfWeek')['Daily_Return'].agg(['mean', 'std']).reindex(day_order).reset_index()
         day_stats['Day_KR'] = day_stats['DayOfWeek'].map(day_kr)
+        day_stats['std'] = day_stats['std'].fillna(0)
 
         fig_d = px.bar(
             day_stats,
@@ -377,17 +378,21 @@ with tab2:
     st.markdown("---")
     st.markdown("#### 📉 일일 수익률 분포 (Histogram & KDE)")
     
-    fig_hist = px.histogram(
-        df.dropna(subset=['Daily_Return']),
-        x='Daily_Return',
-        nbins=40,
-        marginal='box',
-        title="일일 수익률 (%) 분포 현황",
-        labels={'Daily_Return': '일일 수익률 (%)'},
-        color_discrete_sequence=['#3B82F6']
-    )
-    fig_hist.update_layout(height=380, template="plotly_white")
-    st.plotly_chart(fig_hist, use_container_width=True)
+    valid_returns = df.dropna(subset=['Daily_Return'])
+    if len(valid_returns) > 0:
+        fig_hist = px.histogram(
+            valid_returns,
+            x='Daily_Return',
+            nbins=40,
+            marginal='box',
+            title="일일 수익률 (%) 분포 현황",
+            labels={'Daily_Return': '일일 수익률 (%)'},
+            color_discrete_sequence=['#3B82F6']
+        )
+        fig_hist.update_layout(height=380, template="plotly_white")
+        st.plotly_chart(fig_hist, use_container_width=True)
+    else:
+        st.warning("일일 수익률 데이터가 부족합니다.")
 
 # ------------------------------------------
 # Tab 3: 시계열 성분 분해
@@ -397,34 +402,38 @@ with tab3:
     
     decomp_period = st.radio("분해 주기(Period) 선택", options=[5, 10, 20, 30], index=2, horizontal=True, help="20일은 보통 1개월 영업일 주기를 의미합니다.")
 
-    if len(df) < decomp_period * 2:
-        st.error("성분 분해를 수행하기에 선택된 기간의 데이터 포인트가 부족합니다. 더 긴 기간을 선택해주세요.")
+    ts_df = df.set_index('Date')['Close'].dropna()
+
+    if len(ts_df) < decomp_period * 2:
+        st.error(f"성분 분해를 수행하기에 데이터 포인트가 부족합니다. 최소 {decomp_period * 2}개 이상의 일자가 필요합니다.")
     else:
-        ts_df = df.set_index('Date')['Close'].dropna()
-        decomposition = seasonal_decompose(ts_df, model='additive', period=decomp_period)
+        try:
+            decomposition = seasonal_decompose(ts_df, model='additive', period=decomp_period)
 
-        fig_decomp = make_subplots(
-            rows=4, cols=1,
-            shared_xaxes=True,
-            vertical_spacing=0.06,
-            subplot_titles=("1. 관측치 (Observed Price)", "2. 추세 성분 (Trend)", "3. 계절성 성분 (Seasonal)", "4. 잔차 / 노이즈 (Residuals)")
-        )
+            fig_decomp = make_subplots(
+                rows=4, cols=1,
+                shared_xaxes=True,
+                vertical_spacing=0.06,
+                subplot_titles=("1. 관측치 (Observed Price)", "2. 추세 성분 (Trend)", "3. 계절성 성분 (Seasonal)", "4. 잔차 / 노이즈 (Residuals)")
+            )
 
-        fig_decomp.add_trace(go.Scatter(x=ts_df.index, y=decomposition.observed, mode='lines', color='#2563EB'), row=1, col=1)
-        fig_decomp.add_trace(go.Scatter(x=ts_df.index, y=decomposition.trend, mode='lines', color='#F59E0B'), row=2, col=1)
-        fig_decomp.add_trace(go.Scatter(x=ts_df.index, y=decomposition.seasonal, mode='lines', color='#10B981'), row=3, col=1)
-        fig_decomp.add_trace(go.Scatter(x=ts_df.index, y=decomposition.resid, mode='markers', marker=dict(size=4, color='#EF4444')), row=4, col=1)
+            fig_decomp.add_trace(go.Scatter(x=ts_df.index, y=decomposition.observed, mode='lines', line=dict(color='#2563EB', width=1.5)), row=1, col=1)
+            fig_decomp.add_trace(go.Scatter(x=ts_df.index, y=decomposition.trend, mode='lines', line=dict(color='#F59E0B', width=1.5)), row=2, col=1)
+            fig_decomp.add_trace(go.Scatter(x=ts_df.index, y=decomposition.seasonal, mode='lines', line=dict(color='#10B981', width=1.5)), row=3, col=1)
+            fig_decomp.add_trace(go.Scatter(x=ts_df.index, y=decomposition.resid, mode='markers', marker=dict(size=4, color='#EF4444')), row=4, col=1)
 
-        fig_decomp.update_layout(height=750, template="plotly_white", showlegend=False)
-        st.plotly_chart(fig_decomp, use_container_width=True)
+            fig_decomp.update_layout(height=750, template="plotly_white", showlegend=False)
+            st.plotly_chart(fig_decomp, use_container_width=True)
 
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.success("📈 **추세 (Trend)**\n\n장기적인 방향성을 의미하며 노이즈가 제거된 주가의 본질적 흐름을 나타냅니다.")
-        with c2:
-            st.info("🔄 **계절성 (Seasonal)**\n\n지정된 주기(Period) 동안 반복적으로 나타나는 순환적 파동 패턴입니다.")
-        with c3:
-            st.warning("⚡ **잔차 (Resid)**\n\n추세와 계절성으로 설명되지 않는 돌발 이벤트 및 노이즈 변동성입니다.")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.success("📈 **추세 (Trend)**\n\n장기적인 방향성을 의미하며 노이즈가 제거된 주가의 본질적 흐름을 나타냅니다.")
+            with c2:
+                st.info("🔄 **계절성 (Seasonal)**\n\n지정된 주기(Period) 동안 반복적으로 나타나는 순환적 파동 패턴입니다.")
+            with c3:
+                st.warning("⚡ **잔차 (Resid)**\n\n추세와 계절성으로 설명되지 않는 돌발 이벤트 및 노이즈 변동성입니다.")
+        except Exception as err:
+            st.error(f"시계열 성분 분해 처리 중 오류가 발생했습니다: {err}")
 
 # ------------------------------------------
 # Tab 4: 30일 예측 시뮬레이션
@@ -448,12 +457,16 @@ with tab4:
         forecast_values = [last_close + (adjusted_slope * (i + 1)) for i in range(forecast_days)]
         
         # 상/하한 신뢰 구간 가상 생성 (일일 변동성 기준)
-        daily_std = df['Daily_Return'].std() * 0.01 * last_close
+        daily_return_std = df['Daily_Return'].std()
+        if pd.isna(daily_return_std):
+            daily_return_std = 1.0
+        daily_std = daily_return_std * 0.01 * last_close
+        
         upper_bound = [v + (1.96 * daily_std * np.sqrt(i + 1)) for i, v in enumerate(forecast_values)]
         lower_bound = [v - (1.96 * daily_std * np.sqrt(i + 1)) for i, v in enumerate(forecast_values)]
 
         forecast_df = pd.DataFrame({
-            'Date': future_dates,
+            'Date': future_dates.strftime('%Y-%m-%d'),
             'Forecast_Close': forecast_values,
             'Upper_Bound': upper_bound,
             'Lower_Bound': lower_bound
@@ -514,7 +527,7 @@ with tab4:
                 'Forecast_Close': '{:,.0f} 원',
                 'Upper_Bound': '{:,.0f} 원',
                 'Lower_Bound': '{:,.0f} 원'
-            }),
+            }, na_rep='-'),
             use_container_width=True
         )
 
@@ -536,8 +549,11 @@ with tab5:
     col_d1, col_d2 = st.columns([3, 1])
     with col_d1:
         st.markdown("##### 🔍 선택 기간 데이터셋 테이블")
+        disp_df = df[['Date', 'Open', 'High', 'Low', 'Close', 'Volume', 'SMA_20', 'SMA_50', 'Daily_Return']].copy()
+        disp_df['Date'] = disp_df['Date'].dt.strftime('%Y-%m-%d')
+        
         st.dataframe(
-            df[['Date', 'Open', 'High', 'Low', 'Close', 'Volume', 'SMA_20', 'SMA_50', 'Daily_Return']].style.format({
+            disp_df.style.format({
                 'Open': '{:,.0f}',
                 'High': '{:,.0f}',
                 'Low': '{:,.0f}',
@@ -546,14 +562,14 @@ with tab5:
                 'SMA_20': '{:,.1f}',
                 'SMA_50': '{:,.1f}',
                 'Daily_Return': '{:+.2f}%'
-            }),
+            }, na_rep='-'),
             use_container_width=True,
             height=450
         )
     with col_d2:
         st.markdown("##### 📊 요약 통계량")
         st.dataframe(
-            df[['Close', 'Volume', 'Daily_Return']].describe().style.format('{:,.2f}'),
+            df[['Close', 'Volume', 'Daily_Return']].describe().style.format('{:,.2f}', na_rep='-'),
             use_container_width=True
         )
 
