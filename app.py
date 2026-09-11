@@ -11,7 +11,7 @@ from statsmodels.tsa.seasonal import seasonal_decompose
 # src 모듈 경로 추가
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'src')))
 
-from analysis_utils import load_and_preprocess_data
+from analysis_utils import load_and_preprocess_data, simple_baseline_forecast
 
 # Streamlit 페이지 설정
 st.set_page_config(
@@ -161,6 +161,12 @@ st.sidebar.markdown("---")
 
 # 4. 베이스라인 예측 시뮬레이션 설정
 st.sidebar.subheader("🔮 30일 예측 조건 조절")
+forecast_method = st.sidebar.selectbox(
+    "예측 알고리즘 선택",
+    options=["선형 회귀 추세선 (OLS Linear Regression)", "이동평균 추세 (Moving Average slope)"],
+    index=0,
+    help="최소자승 선형 회귀(OLS)는 과거 N일 데이터 전체의 우상향/우하향 모멘텀을 반영하여 평행선 오류를 방지합니다."
+)
 forecast_days = st.sidebar.slider("향후 예측 영업일수", min_value=5, max_value=60, value=30, step=5)
 trend_window = st.sidebar.slider("추세 판단에 사용할 과거 일수", min_value=10, max_value=60, value=30, step=5)
 trend_bias = st.sidebar.slider("추세 가중치 (시뮬레이션 조절)", min_value=-2.0, max_value=2.0, value=0.0, step=0.1, help="(+)로 올리면 긍정적 시나리오, (-)로 내리면 보수적 시나리오가 반영됩니다.")
@@ -556,48 +562,50 @@ with tab4:
     if len(df) < trend_window:
         st.error(f"예측을 위해 최소 {trend_window}일 이상의 과거 데이터가 필요합니다.")
     else:
+        method_code = 'linear' if '선형' in forecast_method else 'ma'
+        forecast_df = simple_baseline_forecast(
+            df, 
+            forecast_days=forecast_days, 
+            trend_window=trend_window, 
+            method=method_code, 
+            trend_bias=trend_bias
+        )
+        
         last_date = df['Date'].max()
         last_close = df['Close'].iloc[-1]
         
-        # 최근 N일 추세 계산
-        recent_subset = df.tail(trend_window)
-        slope = (recent_subset['Close'].iloc[-1] - recent_subset['Close'].iloc[0]) / trend_window
-        adjusted_slope = slope + (trend_bias * (last_close * 0.001))
-        
-        future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=forecast_days, freq='B')
-        forecast_values = [last_close + (adjusted_slope * (i + 1)) for i in range(forecast_days)]
-        
-        # 상/하한 신뢰 구간 가상 생성
-        daily_return_std = df['Daily_Return'].std()
-        if pd.isna(daily_return_std):
-            daily_return_std = 1.0
-        daily_std = daily_return_std * 0.01 * last_close
-        
-        upper_bound = [v + (1.96 * daily_std * np.sqrt(i + 1)) for i, v in enumerate(forecast_values)]
-        lower_bound = [v - (1.96 * daily_std * np.sqrt(i + 1)) for i, v in enumerate(forecast_values)]
-
-        forecast_df = pd.DataFrame({
-            'Date': future_dates.strftime('%Y-%m-%d'),
-            'Forecast_Close': forecast_values,
-            'Upper_Bound': upper_bound,
-            'Lower_Bound': lower_bound
-        })
-
-        # 요약 예측 메트릭
-        fc_end_price = forecast_values[-1]
+        fc_end_price = forecast_df['Forecast_Close'].iloc[-1]
         fc_change_pct = ((fc_end_price - last_close) / last_close) * 100
-        
-        fc_col1, fc_col2, fc_col3 = st.columns(3)
+        adjusted_slope = (fc_end_price - last_close) / forecast_days
+        slope_pct = (adjusted_slope / last_close) * 100
+
+        # 추세 상태 진단
+        if adjusted_slope > last_close * 0.0005:
+            trend_status = "📈 우상향 (상승 추세)"
+            trend_color = "🟢"
+        elif adjusted_slope < -last_close * 0.0005:
+            trend_status = "📉 우하향 (하락 추세)"
+            trend_color = "🔴"
+        else:
+            trend_status = "➡️ 횡보 (보합 추세)"
+            trend_color = "🟡"
+
+        # 요약 예측 메트릭 (4개 컬럼)
+        fc_col1, fc_col2, fc_col3, fc_col4 = st.columns(4)
         with fc_col1:
             st.metric("🎯 30일 뒤 예상 주가", f"{fc_end_price:,.0f} 원", delta=f"{fc_change_pct:+.2f}%")
         with fc_col2:
-            st.metric("📈 예상 최고 한계선", f"{upper_bound[-1]:,.0f} 원")
+            st.metric("📐 일일 추세 기울기", f"{adjusted_slope:+.1f} 원/일", delta=f"{slope_pct:+.2f}%/일")
         with fc_col3:
-            st.metric("📉 예상 최저 지지선", f"{lower_bound[-1]:,.0f} 원")
+            st.metric("📈 예상 최고 한계선", f"{forecast_df['Upper_Bound'].iloc[-1]:,.0f} 원")
+        with fc_col4:
+            st.metric("📉 예상 최저 지지선", f"{forecast_df['Lower_Bound'].iloc[-1]:,.0f} 원")
+
+        st.info(f"{trend_color} **산출 추세 방향성**: {trend_status} | 적용 알고리즘: **{forecast_method}** (과거 {trend_window}일 모멘텀 수집)")
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # 시각화
+        # 최근 90일 히스토리 시각화
         recent_history = df.tail(90)
         fig_fc = go.Figure()
 
@@ -610,7 +618,7 @@ with tab4:
         ))
 
         fig_fc.add_trace(go.Scatter(
-            x=forecast_df['Date'],
+            x=pd.to_datetime(forecast_df['Date']),
             y=forecast_df['Forecast_Close'],
             mode='lines+markers',
             name=f"향후 {forecast_days}일 예측 추세선",
@@ -618,7 +626,7 @@ with tab4:
         ))
 
         fig_fc.add_trace(go.Scatter(
-            x=forecast_df['Date'],
+            x=pd.to_datetime(forecast_df['Date']),
             y=forecast_df['Upper_Bound'],
             mode='lines',
             name="예상 범위 상한 (+95%)",
@@ -626,7 +634,7 @@ with tab4:
         ))
 
         fig_fc.add_trace(go.Scatter(
-            x=forecast_df['Date'],
+            x=pd.to_datetime(forecast_df['Date']),
             y=forecast_df['Lower_Bound'],
             mode='lines',
             name="예상 범위 하한 (-95%)",
@@ -635,11 +643,18 @@ with tab4:
             fillcolor='rgba(236, 72, 153, 0.1)'
         ))
 
+        # Y축 자동 범위 조율 (최근 90일 및 예측 구간 포커스)
+        vis_prices = list(recent_history['Close']) + list(forecast_df['Forecast_Close']) + list(forecast_df['Upper_Bound']) + list(forecast_df['Lower_Bound'])
+        min_p = min(vis_prices)
+        max_p = max(vis_prices)
+        p_margin = (max_p - min_p) * 0.1 if max_p != min_p else min_p * 0.05
+
         fig_fc.update_layout(
-            height=480,
+            height=500,
             title=f"삼성전자 향후 {forecast_days} 영업일 주가 예측 (일일 추세 기울기: {adjusted_slope:+.1f} 원/일)",
             xaxis_title="날짜 (Date)",
             yaxis_title="주가 (원)",
+            yaxis=dict(range=[min_p - p_margin, max_p + p_margin]),
             template="plotly_white",
             hovermode="x unified"
         )

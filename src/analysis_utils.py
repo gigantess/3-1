@@ -60,19 +60,55 @@ def decompose_time_series(df, period=20):
     })
     return result_df, decomposition
 
-def simple_baseline_forecast(df, forecast_days=30):
+def simple_baseline_forecast(df, forecast_days=30, trend_window=30, method='linear', trend_bias=0.0):
     """
-    최근 이동평균 기반 베이스라인 30일 추세 예측
+    최근 N일간의 데이터를 기반으로 선형 회귀(OLS) 추세를 산출하여 향후 주가를 예측합니다.
     """
-    last_date = df['Date'].max()
-    last_close = df['Close'].iloc[-1]
-    recent_trend = (df['Close'].iloc[-1] - df['Close'].iloc[-30]) / 30
+    df_clean = df.dropna(subset=['Close']).copy()
+    if len(df_clean) < 5:
+        raise ValueError("예측을 위해 최소 5개 이상의 데이터가 필요합니다.")
+        
+    recent_subset = df_clean.tail(min(trend_window, len(df_clean)))
+    
+    x = np.arange(len(recent_subset))
+    y = recent_subset['Close'].values
+    
+    if method == 'linear':
+        # 최소자승법(OLS) 1차 선형 회귀 (기울기, 절편)
+        slope, intercept = np.polyfit(x, y, 1)
+    elif method == 'ma':
+        # 이동평균 변화율 기반
+        slope = (y[-1] - y[0]) / len(y) if len(y) > 1 else 0
+        intercept = y[-1] - slope * (len(y) - 1)
+    else:
+        slope, intercept = np.polyfit(x, y, 1)
+        
+    last_date = df_clean['Date'].max()
+    last_close = df_clean['Close'].iloc[-1]
+    
+    # 시뮬레이션 추세 바이어스 적용
+    adjusted_slope = slope + (trend_bias * (last_close * 0.001))
     
     future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=forecast_days, freq='B')
-    forecast_values = [last_close + (recent_trend * (i + 1)) for i in range(forecast_days)]
+    
+    # 마지막 종가로부터의 예측 변화
+    forecast_values = [last_close + (adjusted_slope * (i + 1)) for i in range(forecast_days)]
+    
+    # 회귀 잔차(Residual) 기반 표준 오차 및 95% 신뢰 구간 계산
+    y_pred = intercept + slope * x
+    residuals = y - y_pred
+    std_err = np.std(residuals) if len(residuals) > 1 else (last_close * 0.01)
+    if std_err == 0:
+        std_err = last_close * 0.01
+        
+    upper_bound = [v + (1.96 * std_err * np.sqrt(1 + (i + 1) / len(recent_subset))) for i, v in enumerate(forecast_values)]
+    lower_bound = [v - (1.96 * std_err * np.sqrt(1 + (i + 1) / len(recent_subset))) for i, v in enumerate(forecast_values)]
     
     forecast_df = pd.DataFrame({
         'Date': future_dates,
-        'Forecast_Close': forecast_values
+        'Forecast_Close': forecast_values,
+        'Upper_Bound': upper_bound,
+        'Lower_Bound': lower_bound
     })
     return forecast_df
+

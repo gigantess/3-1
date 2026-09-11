@@ -113,17 +113,18 @@ def main():
     print(f"Chart 3 saved to {chart3_path}")
 
     # -------------------------------------------------------------
-    # Chart 4: 베이스라인 30일 예측
+    # Chart 4: 선형 회귀 기반 베이스라인 30일 예측
     # -------------------------------------------------------------
-    forecast_df = simple_baseline_forecast(df, forecast_days=30)
+    forecast_df = simple_baseline_forecast(df, forecast_days=30, trend_window=30, method='linear')
     
     fig, ax = plt.subplots(figsize=(14, 6))
     recent_history = df.tail(90)
     
     ax.plot(recent_history['Date'], recent_history['Close'], label='최근 주가 추이 (관측치)', color='#1f77b4', linewidth=1.8)
-    ax.plot(forecast_df['Date'], forecast_df['Forecast_Close'], label='향후 30 영업일 베이스라인 예측', color='#e377c2', linestyle='--', linewidth=2.0, marker='o', markersize=3)
+    ax.plot(forecast_df['Date'], forecast_df['Forecast_Close'], label='향후 30 영업일 선형 회귀(OLS) 예측', color='#e377c2', linestyle='--', linewidth=2.0, marker='o', markersize=3)
+    ax.fill_between(forecast_df['Date'], forecast_df['Lower_Bound'], forecast_df['Upper_Bound'], color='#e377c2', alpha=0.15, label='95% 예측 신뢰 구간')
     
-    ax.set_title("삼성전자 향후 30 영업일 주가 추세 베이스라인 예측 (Baseline Forecast)", fontsize=16, fontweight='bold', pad=15)
+    ax.set_title("삼성전자 향후 30 영업일 주가 추세 선형 회귀 예측 (OLS Baseline Forecast)", fontsize=16, fontweight='bold', pad=15)
     ax.set_xlabel("날짜 (Date)", fontsize=12)
     ax.set_ylabel("주가 (KRW)", fontsize=12)
     ax.legend(loc='upper left', fontsize=11)
