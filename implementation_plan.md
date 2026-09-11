@@ -78,10 +78,10 @@
 
 ---
 
-### Phase 4: 보너스 과제 A - 인터랙티브 웹 대시보드 구축 (Step 8)
+### Phase 4: 보너스 과제 A - 인터랙티브 웹 대시보드 구축 (Step 8) [완료]
 
-#### Step 8: Streamlit 서비스화 대시보드 개발
-- [NEW] [app.py](file:///d:/cody/3-1/app.py)
+#### Step 8: Streamlit 서비스화 대시보드 개발 (완료)
+- [x] [app.py](file:///d:/cody/3-1/app.py)
   - **Streamlit 기반 대시보드 앱 구현**:
     - 날짜 범위(Date Range) 동적 조율 슬라이더.
     - 이동평균선(10일/20일/50일/120일) 선택 켜기/끄기 및 변동성 지표 필터.
