@@ -228,5 +228,62 @@ def evaluate_forecast_models(df, test_days=30):
     res_df = pd.DataFrame(results).sort_values(by='MAPE (%)').reset_index(drop=True)
     return res_df
 
+def validate_2024_to_2025_forecast(df):
+    """
+    2024년 주가 데이터(학습 데이터)만을 이용하여 2025년 주가를 예측하고,
+    실제 2025년 주가 데이터와 1:1 비교하여 오차율(MAPE %, MAE, RMSE)을 산출합니다.
+    """
+    df_clean = df.dropna(subset=['Close']).copy()
+    df_2024 = df_clean[df_clean['Date'].dt.year == 2024].sort_values('Date').reset_index(drop=True)
+    df_2025 = df_clean[df_clean['Date'].dt.year == 2025].sort_values('Date').reset_index(drop=True)
+    
+    if len(df_2024) < 30 or len(df_2025) == 0:
+        return pd.DataFrame(), {}
+        
+    n_days_2025 = len(df_2025)
+    actual_2025 = df_2025['Close'].values
+    
+    methods = {
+        'ARIMA (자기회귀 모델)': 'arima',
+        'Holt 지수 평활법': 'holt',
+        '선형 회귀 (OLS)': 'linear',
+        '이동평균 (MA)': 'ma'
+    }
+    
+    results = []
+    forecast_dfs = {}
+    
+    for label, code in methods.items():
+        try:
+            fc_df = advanced_time_series_forecast(df_2024, forecast_days=n_days_2025, method=code)
+            fc_df['Date'] = df_2025['Date'].values[:len(fc_df)]  # 2025년 실제 거래일 매핑
+            forecast_dfs[code] = fc_df
+            
+            preds_full = fc_df['Forecast_Close'].values[:len(actual_2025)]
+            
+            # 1년 전체 평가
+            mae_full = np.mean(np.abs(actual_2025 - preds_full))
+            rmse_full = np.sqrt(np.mean((actual_2025 - preds_full) ** 2))
+            mape_full = np.mean(np.abs((actual_2025 - preds_full) / actual_2025)) * 100
+            
+            # 상반기 (6개월, 약 120 영업일) 평가
+            half_n = min(120, len(actual_2025))
+            mae_half = np.mean(np.abs(actual_2025[:half_n] - preds_full[:half_n]))
+            mape_half = np.mean(np.abs((actual_2025[:half_n] - preds_full[:half_n]) / actual_2025[:half_n])) * 100
+            
+            results.append({
+                '모델명': label,
+                '2025 상반기 MAPE (%)': round(mape_half, 2),
+                '2025 전체 MAPE (%)': round(mape_full, 2),
+                '전체 MAE (원)': round(mae_full, 1),
+                '전체 RMSE (원)': round(rmse_full, 1)
+            })
+        except Exception as e:
+            continue
+            
+    res_df = pd.DataFrame(results).sort_values(by='2025 전체 MAPE (%)').reset_index(drop=True)
+    return res_df, forecast_dfs
+
+
 
 

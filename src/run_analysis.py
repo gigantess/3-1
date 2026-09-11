@@ -15,7 +15,8 @@ from analysis_utils import (
     decompose_time_series,
     simple_baseline_forecast,
     advanced_time_series_forecast,
-    evaluate_forecast_models
+    evaluate_forecast_models,
+    validate_2024_to_2025_forecast
 )
 
 def main():
@@ -147,7 +148,41 @@ def main():
     print("\n[Model Accuracy Backtesting Results (Holdout 30 days)]")
     print(eval_df.to_string(index=False))
 
-    print("Phase 2 analysis and visualization completed successfully!")
+    # -------------------------------------------------------------
+    # Chart 5: 2024년 학습 기반 2025년 주가 예측 및 실제치 대조 검증
+    # -------------------------------------------------------------
+    val_metrics_df, val_forecast_dfs = validate_2024_to_2025_forecast(df)
+    
+    if len(val_forecast_dfs) > 0:
+        fig, ax = plt.subplots(figsize=(16, 7))
+        df_2024 = df[df['Date'].dt.year == 2024]
+        df_2025 = df[df['Date'].dt.year == 2025]
+        
+        ax.plot(df_2024['Date'], df_2024['Close'], label='2024년 실제 주가 (학습 데이터)', color='#1f77b4', linewidth=1.8)
+        ax.plot(df_2025['Date'], df_2025['Close'], label='2025년 실제 주가 (관측 검증치)', color='#2ca02c', linewidth=2.2)
+        
+        if 'arima' in val_forecast_dfs:
+            ax.plot(val_forecast_dfs['arima']['Date'], val_forecast_dfs['arima']['Forecast_Close'], label='2025년 ARIMA 모델 예측', color='#8b5cf6', linestyle='--', linewidth=2.0)
+        if 'holt' in val_forecast_dfs:
+            ax.plot(val_forecast_dfs['holt']['Date'], val_forecast_dfs['holt']['Forecast_Close'], label='2025년 Holt 지수평활 예측', color='#10b981', linestyle='-.', linewidth=1.8)
+        if 'linear' in val_forecast_dfs:
+            ax.plot(val_forecast_dfs['linear']['Date'], val_forecast_dfs['linear']['Forecast_Close'], label='2025년 OLS 선형회귀 예측', color='#f59e0b', linestyle=':', linewidth=1.8)
+            
+        ax.set_title("2024년 주가 데이터 학습 기반 2025년 주가 예측 vs 실제 2025년 주가 검증", fontsize=16, fontweight='bold', pad=15)
+        ax.set_xlabel("날짜 (Date)", fontsize=12)
+        ax.set_ylabel("주가 (KRW)", fontsize=12)
+        ax.legend(loc='upper left', fontsize=11)
+        ax.grid(True, linestyle=':', alpha=0.6)
+        plt.tight_layout()
+        chart5_path = "images/05_2024_train_2025_test_validation.png"
+        plt.savefig(chart5_path, dpi=300)
+        plt.close()
+        print(f"Chart 5 saved to {chart5_path}")
+        
+        print("\n[2024 Train -> 2025 Test Validation Results]")
+        print(val_metrics_df.to_string(index=False))
+
+    print("\nPhase 2 analysis and visualization completed successfully!")
 
 if __name__ == "__main__":
     main()
