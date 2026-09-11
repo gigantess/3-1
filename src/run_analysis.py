@@ -116,9 +116,10 @@ def main():
     print(f"Chart 3 saved to {chart3_path}")
 
     # -------------------------------------------------------------
-    # Chart 4: 고도화 시계열 예측 (ARIMA & Holt & OLS 비교)
+    # Chart 4: 고도화 시계열 예측 (XGBoost ML vs ARIMA vs Holt vs OLS)
     # -------------------------------------------------------------
     arima_df = advanced_time_series_forecast(df, forecast_days=30, method='arima')
+    xgb_df = advanced_time_series_forecast(df, forecast_days=30, method='xgboost')
     holt_df = advanced_time_series_forecast(df, forecast_days=30, method='holt')
     ols_df = advanced_time_series_forecast(df, forecast_days=30, method='linear')
     
@@ -126,13 +127,14 @@ def main():
     recent_history = df.tail(90)
     
     ax.plot(recent_history['Date'], recent_history['Close'], label='최근 주가 추이 (관측치)', color='#1f77b4', linewidth=2.0)
-    ax.plot(arima_df['Date'], arima_df['Forecast_Close'], label='ARIMA 모델 예측 (자기회귀)', color='#8b5cf6', linestyle='-', linewidth=2.2, marker='o', markersize=3)
-    ax.plot(holt_df['Date'], holt_df['Forecast_Close'], label='Holt 이중 지수평활 예측', color='#10b981', linestyle='--', linewidth=2.0)
-    ax.plot(ols_df['Date'], ols_df['Forecast_Close'], label='OLS 선형회귀 추세선', color='#f59e0b', linestyle=':', linewidth=1.8)
+    ax.plot(xgb_df['Date'], xgb_df['Forecast_Close'], label='XGBoost 머신러닝 예측 (기술지표+외생)', color='#e11d48', linestyle='-', linewidth=2.2, marker='s', markersize=3)
+    ax.plot(arima_df['Date'], arima_df['Forecast_Close'], label='Auto-ARIMA 예측 (자기회귀)', color='#8b5cf6', linestyle='--', linewidth=2.0)
+    ax.plot(holt_df['Date'], holt_df['Forecast_Close'], label='Holt 이중 지수평활 예측', color='#10b981', linestyle='-.', linewidth=1.8)
+    ax.plot(ols_df['Date'], ols_df['Forecast_Close'], label='OLS 선형회귀 추세선', color='#f59e0b', linestyle=':', linewidth=1.5)
     
-    ax.fill_between(arima_df['Date'], arima_df['Lower_Bound'], arima_df['Upper_Bound'], color='#8b5cf6', alpha=0.12, label='ARIMA 95% 예측 신뢰 구간')
+    ax.fill_between(xgb_df['Date'], xgb_df['Lower_Bound'], xgb_df['Upper_Bound'], color='#e11d48', alpha=0.10, label='XGBoost 95% 예측 신뢰 구간')
     
-    ax.set_title("삼성전자 향후 30 영업일 고도화 시계열 주가 예측 (ARIMA vs Holt vs OLS)", fontsize=16, fontweight='bold', pad=15)
+    ax.set_title("삼성전자 향후 30 영업일 고도화 시계열 주가 예측 (XGBoost ML vs ARIMA vs Holt vs OLS)", fontsize=16, fontweight='bold', pad=15)
     ax.set_xlabel("날짜 (Date)", fontsize=12)
     ax.set_ylabel("주가 (KRW)", fontsize=12)
     ax.legend(loc='upper left', fontsize=11)
@@ -149,7 +151,7 @@ def main():
     print(eval_df.to_string(index=False))
 
     # -------------------------------------------------------------
-    # Chart 5: 2024년 학습 기반 2025년 주가 예측 및 실제치 대조 검증
+    # Chart 5: 2024년 학습 기반 2025년 주가 검증 (정적 평행선 vs 동적 롤링 파동)
     # -------------------------------------------------------------
     val_metrics_df, val_forecast_dfs = validate_2024_to_2025_forecast(df)
     
@@ -159,16 +161,18 @@ def main():
         df_2025 = df[df['Date'].dt.year == 2025]
         
         ax.plot(df_2024['Date'], df_2024['Close'], label='2024년 실제 주가 (학습 데이터)', color='#1f77b4', linewidth=1.8)
-        ax.plot(df_2025['Date'], df_2025['Close'], label='2025년 실제 주가 (관측 검증치)', color='#2ca02c', linewidth=2.2)
+        ax.plot(df_2025['Date'], df_2025['Close'], label='2025년 실제 주가 (관측 검증치)', color='#10b981', linewidth=2.5)
         
+        if 'rolling_ensemble' in val_forecast_dfs:
+            ax.plot(val_forecast_dfs['rolling_ensemble']['Date'], val_forecast_dfs['rolling_ensemble']['Forecast_Close'], label='동적 롤링 앙상블 예측 (Walk-Forward 5일)', color='#e11d48', linestyle='-', linewidth=2.2)
+        if 'rolling_arima' in val_forecast_dfs:
+            ax.plot(val_forecast_dfs['rolling_arima']['Date'], val_forecast_dfs['rolling_arima']['Forecast_Close'], label='동적 롤링 ARIMA 예측 (Walk-Forward 5일)', color='#2563eb', linestyle='--', linewidth=2.0)
+        if 'xgboost' in val_forecast_dfs:
+            ax.plot(val_forecast_dfs['xgboost']['Date'], val_forecast_dfs['xgboost']['Forecast_Close'], label='XGBoost 머신러닝 (기술지표+외생)', color='#d97706', linestyle='-.', linewidth=1.8)
         if 'arima' in val_forecast_dfs:
-            ax.plot(val_forecast_dfs['arima']['Date'], val_forecast_dfs['arima']['Forecast_Close'], label='2025년 ARIMA 모델 예측', color='#8b5cf6', linestyle='--', linewidth=2.0)
-        if 'holt' in val_forecast_dfs:
-            ax.plot(val_forecast_dfs['holt']['Date'], val_forecast_dfs['holt']['Forecast_Close'], label='2025년 Holt 지수평활 예측', color='#10b981', linestyle='-.', linewidth=1.8)
-        if 'linear' in val_forecast_dfs:
-            ax.plot(val_forecast_dfs['linear']['Date'], val_forecast_dfs['linear']['Forecast_Close'], label='2025년 OLS 선형회귀 예측', color='#f59e0b', linestyle=':', linewidth=1.8)
+            ax.plot(val_forecast_dfs['arima']['Date'], val_forecast_dfs['arima']['Forecast_Close'], label='기존 정적 ARIMA (평행 수평선 한계)', color='#9ca3af', linestyle=':', linewidth=1.5)
             
-        ax.set_title("2024년 주가 데이터 학습 기반 2025년 주가 예측 vs 실제 2025년 주가 검증", fontsize=16, fontweight='bold', pad=15)
+        ax.set_title("2024년 주가 학습 기반 2025년 실증 검증: 정적 평행선 한계 극복 (동적 롤링 예측 & ML 도입)", fontsize=16, fontweight='bold', pad=15)
         ax.set_xlabel("날짜 (Date)", fontsize=12)
         ax.set_ylabel("주가 (KRW)", fontsize=12)
         ax.legend(loc='upper left', fontsize=11)
@@ -183,6 +187,7 @@ def main():
         print(val_metrics_df.to_string(index=False))
 
     print("\nPhase 2 analysis and visualization completed successfully!")
+
 
 if __name__ == "__main__":
     main()
