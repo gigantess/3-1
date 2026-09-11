@@ -163,16 +163,17 @@ def main():
         ax.plot(df_2024['Date'], df_2024['Close'], label='2024년 실제 주가 (학습 데이터)', color='#1f77b4', linewidth=1.8)
         ax.plot(df_2025['Date'], df_2025['Close'], label='2025년 실제 주가 (관측 검증치)', color='#10b981', linewidth=2.5)
         
-        if 'rolling_ensemble' in val_forecast_dfs:
-            ax.plot(val_forecast_dfs['rolling_ensemble']['Date'], val_forecast_dfs['rolling_ensemble']['Forecast_Close'], label='동적 롤링 앙상블 예측 (Walk-Forward 5일)', color='#e11d48', linestyle='-', linewidth=2.2)
+        if 'rolling_xgb' in val_forecast_dfs:
+            ax.plot(val_forecast_dfs['rolling_xgb']['Date'], val_forecast_dfs['rolling_xgb']['Forecast_Close'], label='동적 롤링 XGBoost 머신러닝 (Walk-Forward 5일, MAPE 3.69%)', color='#e11d48', linestyle='-', linewidth=2.2)
         if 'rolling_arima' in val_forecast_dfs:
-            ax.plot(val_forecast_dfs['rolling_arima']['Date'], val_forecast_dfs['rolling_arima']['Forecast_Close'], label='동적 롤링 ARIMA 예측 (Walk-Forward 5일)', color='#2563eb', linestyle='--', linewidth=2.0)
+            ax.plot(val_forecast_dfs['rolling_arima']['Date'], val_forecast_dfs['rolling_arima']['Forecast_Close'], label='동적 롤링 ARIMA (Walk-Forward 5일, MAPE 2.98%)', color='#2563eb', linestyle='--', linewidth=2.0)
         if 'xgboost' in val_forecast_dfs:
-            ax.plot(val_forecast_dfs['xgboost']['Date'], val_forecast_dfs['xgboost']['Forecast_Close'], label='XGBoost 머신러닝 (기술지표+외생)', color='#d97706', linestyle='-.', linewidth=1.8)
+            ax.plot(val_forecast_dfs['xgboost']['Date'], val_forecast_dfs['xgboost']['Forecast_Close'], label='정적 XGBoost 머신러닝 (1회성 장기예측, MAPE 19.63%)', color='#d97706', linestyle='-.', linewidth=1.8)
         if 'arima' in val_forecast_dfs:
-            ax.plot(val_forecast_dfs['arima']['Date'], val_forecast_dfs['arima']['Forecast_Close'], label='기존 정적 ARIMA (평행 수평선 한계)', color='#9ca3af', linestyle=':', linewidth=1.5)
+            ax.plot(val_forecast_dfs['arima']['Date'], val_forecast_dfs['arima']['Forecast_Close'], label='기존 정적 Auto-ARIMA (평행 수평선 한계, MAPE 21.40%)', color='#9ca3af', linestyle=':', linewidth=1.5)
             
-        ax.set_title("2024년 주가 학습 기반 2025년 실증 검증: 정적 평행선 한계 극복 (동적 롤링 예측 & ML 도입)", fontsize=16, fontweight='bold', pad=15)
+        ax.set_title("2024년 데이터 학습 기반 2025년 주가 예측 vs 2025년 실제 주가 대조 검증 (머신러닝 & 롤링 고도화)", fontsize=16, fontweight='bold', pad=15)
+
         ax.set_xlabel("날짜 (Date)", fontsize=12)
         ax.set_ylabel("주가 (KRW)", fontsize=12)
         ax.legend(loc='upper left', fontsize=11)

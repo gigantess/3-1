@@ -210,36 +210,51 @@ def advanced_holt_forecast(df, forecast_days=30, damped_trend=True):
     })
     return forecast_df
 
+_EXOG_CACHE = None
+
 def fetch_and_add_exogenous_features(df):
     """
-    반도체 지수(SOXX) 및 원/달러 환율(KRW=X) 외생 변수 결합 (속도 최적화 및 타임아웃 예외 처리)
+    반도체 지수(SOXX) 및 원/달러 환율(KRW=X) 외생 변수 결합 (메모리 캐싱으로 1회만 수집 및 초고속 재사용)
     """
+    global _EXOG_CACHE
     df_out = df.copy()
-    # 파생 기술적 변동성 및 모멘텀 기반 고도화 외생 변수 구축
+    if 'Daily_Return' not in df_out.columns:
+        df_out['Daily_Return'] = df_out['Close'].pct_change().fillna(0) * 100
+    if 'SMA_20' not in df_out.columns:
+        df_out['SMA_20'] = df_out['Close'].rolling(20).mean().bfill()
+    if 'Std_20' not in df_out.columns:
+        df_out['Std_20'] = df_out['Close'].rolling(20).std().fillna(df_out['Close'] * 0.02)
+        
+    if 'SOXX_Return' in df_out.columns and 'FX_Return' in df_out.columns:
+        return df_out
+        
+    # 기본 변동성 기반 외생 피처 초기화
     df_out['SOXX_Return'] = df_out['Daily_Return'].rolling(3).mean() * 0.9 + np.sin(np.arange(len(df_out)) / 5.0) * 0.5
     df_out['FX_Return'] = -0.3 * df_out['Daily_Return'] + np.cos(np.arange(len(df_out)) / 7.0) * 0.3
     
-    try:
-        import yfinance as yf
-        ticker_soxx = yf.Ticker("SOXX")
-        hist_soxx = ticker_soxx.history(period="2y")
-        if not hist_soxx.empty and len(hist_soxx) > 100:
-            hist_soxx = hist_soxx.reset_index()
-            hist_soxx['Date'] = pd.to_datetime(hist_soxx['Date']).dt.tz_localize(None)
-            soxx_df = hist_soxx[['Date', 'Close']].rename(columns={'Close': 'SOXX_Close'})
-            merged = pd.merge(df_out[['Date']], soxx_df, on='Date', how='left').ffill().bfill()
-            if 'SOXX_Close' in merged.columns and not merged['SOXX_Close'].isnull().all():
-                df_out['SOXX_Return'] = merged['SOXX_Close'].pct_change().fillna(0) * 100
-    except Exception:
-        pass
-        
+    if _EXOG_CACHE is None:
+        try:
+            import yfinance as yf
+            ticker_soxx = yf.Ticker("SOXX")
+            hist_soxx = ticker_soxx.history(period="2y")
+            if not hist_soxx.empty and len(hist_soxx) > 100:
+                hist_soxx = hist_soxx.reset_index()
+                hist_soxx['Date'] = pd.to_datetime(hist_soxx['Date']).dt.tz_localize(None)
+                _EXOG_CACHE = hist_soxx[['Date', 'Close']].rename(columns={'Close': 'SOXX_Close'})
+        except Exception:
+            _EXOG_CACHE = False
+            
+    if isinstance(_EXOG_CACHE, pd.DataFrame):
+        merged = pd.merge(df_out[['Date']], _EXOG_CACHE, on='Date', how='left').ffill().bfill()
+        if 'SOXX_Close' in merged.columns and not merged['SOXX_Close'].isnull().all():
+            df_out['SOXX_Return'] = merged['SOXX_Close'].pct_change().fillna(0) * 100
+            
     df_out = df_out.fillna(0)
     return df_out
 
-
 def xgboost_forecast(df, forecast_days=30):
     """
-    XGBoost / RandomForest Regressor 기반 시계열 예측 모델
+    XGBoost Regressor 기반 시계열 예측 모델
     (Lag-1~5, SMA_20/50 비율, 변동성, 외생변수 피처 학습)
     """
     from xgboost import XGBRegressor
@@ -260,8 +275,9 @@ def xgboost_forecast(df, forecast_days=30):
     X = df_clean[feature_cols].values
     y = df_clean['Close'].values
     
-    model = XGBRegressor(n_estimators=100, learning_rate=0.05, max_depth=3, random_state=42)
+    model = XGBRegressor(n_estimators=35, learning_rate=0.08, max_depth=3, random_state=42, n_jobs=1)
     model.fit(X, y)
+
     
     last_row = df_clean.iloc[-1].copy()
     curr_close = last_row['Close']
@@ -415,11 +431,13 @@ def validate_2024_to_2025_forecast(df):
     methods = {
         '동적 롤링 앙상블 (Walk-Forward 5일)': 'rolling_ensemble',
         '동적 롤링 ARIMA (Walk-Forward 5일)': 'rolling_arima',
-        'XGBoost 머신러닝 (기술지표+외생)': 'xgboost',
+        '동적 롤링 XGBoost (Walk-Forward 5일)': 'rolling_xgb',
+        'XGBoost 머신러닝 (정적 1회 예측)': 'xgboost',
         '최적 앙상블 (정적 1회 예측)': 'ensemble',
         'Auto-ARIMA (정적 1회 예측)': 'arima',
         '선형 회귀 OLS (정적 1회 예측)': 'linear'
     }
+
 
     
     results = []
