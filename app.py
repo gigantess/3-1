@@ -15,65 +15,80 @@ from analysis_utils import load_and_preprocess_data
 
 # Streamlit 페이지 설정
 st.set_page_config(
-    page_title="삼성전자 주가 시계열 분석 대시보드",
+    page_title="삼성전자 주가 시계열 분석 & 초보자 가이드 대시보드",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# 커스텀 CSS 스타일링
+# 커스텀 CSS 스타일링 (UX & readability 대폭 개선)
 st.markdown("""
 <style>
-    .main-header {
-        font-size: 2.2rem;
-        font-weight: 700;
-        color: #1E293B;
+    @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700&display=swap');
+    html, body, [class*="css"] {
+        font-family: 'Pretendard', sans-serif;
+    }
+    
+    .main-title {
+        font-size: 2.1rem;
+        font-weight: 800;
+        color: #0F172A;
         margin-bottom: 0.2rem;
     }
-    .sub-header {
+    .sub-title {
         font-size: 1.05rem;
-        color: #64748B;
-        margin-bottom: 1.5rem;
+        color: #475569;
+        margin-bottom: 1.2rem;
     }
-    .metric-card {
+    
+    /* 신호 진단 배너 카드 */
+    .signal-banner {
+        background: linear-gradient(135deg, #F0F9FF 0%, #E0F2FE 100%);
+        border-left: 6px solid #0284C7;
+        border-radius: 10px;
+        padding: 16px 20px;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+    }
+    .signal-title {
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: #0369A1;
+        margin-bottom: 6px;
+    }
+    .signal-desc {
+        font-size: 0.95rem;
+        color: #334155;
+        line-height: 1.5;
+    }
+    
+    /* 쉬운 가이드 박스 */
+    .easy-guide-box {
         background-color: #F8FAFC;
         border: 1px solid #E2E8F0;
         border-radius: 10px;
-        padding: 15px;
-        text-align: center;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        padding: 16px 20px;
+        margin-top: 15px;
+        margin-bottom: 15px;
     }
-    .metric-title {
-        font-size: 0.85rem;
-        color: #64748B;
-        font-weight: 600;
-        margin-bottom: 5px;
-    }
-    .metric-value {
-        font-size: 1.4rem;
+    .easy-guide-title {
+        font-size: 1.0rem;
         font-weight: 700;
-        color: #0F172A;
+        color: #1E293B;
+        margin-bottom: 8px;
     }
-    .metric-delta-pos {
-        color: #22C55E;
-        font-size: 0.85rem;
-        font-weight: 600;
-    }
-    .metric-delta-neg {
-        color: #EF4444;
-        font-size: 0.85rem;
-        font-weight: 600;
-    }
+    
+    /* 탭 헤더 스타일링 */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px;
     }
     .stTabs [data-baseweb="tab"] {
-        height: 48px;
+        height: 50px;
         white-space: pre-wrap;
         border-radius: 8px 8px 0px 0px;
-        padding-top: 10px;
-        padding-bottom: 10px;
-        font-weight: 600;
+        padding: 10px 16px;
+        font-weight: 700;
+        font-size: 0.95rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -106,9 +121,9 @@ def load_data():
 df_raw = load_data()
 
 # ==========================================
-# 사이드바 컨트롤 파널
+# 사이드바 컨트롤 파널 (초보자 친화적 설명 포함)
 # ==========================================
-st.sidebar.header("🎛️ 분석 옵션 & 필터")
+st.sidebar.header("🎛️ 분석 조건 설정")
 
 # 1. 날짜 범위 선택
 min_date = df_raw['Date'].min().date()
@@ -118,7 +133,8 @@ start_date, end_date = st.sidebar.date_input(
     "🗓️ 분석 기간 선택",
     value=(min_date, max_date),
     min_value=min_date,
-    max_value=max_date
+    max_value=max_date,
+    help="원하는 주가 분석 시작일과 종료일을 지정하세요."
 )
 
 # 날짜 필터링 적용
@@ -128,32 +144,41 @@ df = df_raw.loc[mask].copy().reset_index(drop=True)
 st.sidebar.markdown("---")
 
 # 2. 이동평균선 선택
-st.sidebar.subheader("📈 이동평균선(MA) 선택")
+st.sidebar.subheader("📈 평균선(MA) 표시 선택")
 selected_mas = st.sidebar.multiselect(
-    "표시할 이동평균선 선택",
-    options=['SMA 10일', 'SMA 20일', 'SMA 50일', 'SMA 120일', 'EMA 20일'],
-    default=['SMA 20일', 'SMA 50일']
+    "차트에 겹쳐볼 평균선 선택",
+    options=['SMA 10일 (단기)', 'SMA 20일 (한 달)', 'SMA 50일 (분기)', 'SMA 120일 (반년)', 'EMA 20일 (지수평균)'],
+    default=['SMA 20일 (한 달)', 'SMA 50일 (분기)']
 )
 
 # 3. 보조 지표 옵션
-st.sidebar.subheader("🛡️ 보조 지표 옵션")
-show_bollinger = st.sidebar.checkbox("볼린저 밴드 (±2 Std) 표시", value=True)
-show_volume = st.sidebar.checkbox("하단 거래량(Volume) 차트 표시", value=True)
-chart_type = st.sidebar.radio("차트 유형 선택", options=["선 그래프 (Line)", "캔들스틱 (Candlestick)"], index=0)
+st.sidebar.subheader("🛡️ 차트 지표 옵션")
+show_bollinger = st.sidebar.checkbox("볼린저 밴드 (적정 가격 범위 띠) 표시", value=True)
+show_volume = st.sidebar.checkbox("하단 거래량 (매수/매도량) 표시", value=True)
+chart_type = st.sidebar.radio("차트 모드", options=["선 그래프 (쉬운 보기)", "캔들스틱 (전문가 보기)"], index=0)
 
 st.sidebar.markdown("---")
 
 # 4. 베이스라인 예측 시뮬레이션 설정
-st.sidebar.subheader("🔮 예측 시뮬레이션 설정")
-forecast_days = st.sidebar.slider("향후 예측 기간 (영업일)", min_value=5, max_value=60, value=30, step=5)
-trend_window = st.sidebar.slider("추세 계산 기준 과거 일수", min_value=10, max_value=60, value=30, step=5)
-trend_bias = st.sidebar.slider("추세 가중치 (시뮬레이션 조절)", min_value=-2.0, max_value=2.0, value=0.0, step=0.1, help="가중치가 (+)이면 보수적/긍정 시나리오, (-)이면 하방 시나리오를 반영합니다.")
+st.sidebar.subheader("🔮 30일 예측 조건 조절")
+forecast_days = st.sidebar.slider("향후 예측 영업일수", min_value=5, max_value=60, value=30, step=5)
+trend_window = st.sidebar.slider("추세 판단에 사용할 과거 일수", min_value=10, max_value=60, value=30, step=5)
+trend_bias = st.sidebar.slider("추세 가중치 (시뮬레이션 조절)", min_value=-2.0, max_value=2.0, value=0.0, step=0.1, help="(+)로 올리면 긍정적 시나리오, (-)로 내리면 보수적 시나리오가 반영됩니다.")
+
+# 초보자용 용어 설명 가이드 (사이드바 하단)
+with st.sidebar.expander("❓ 주식 용어가 어려우신가요? (초보자 가이드)"):
+    st.markdown("""
+    - **종가**: 해당 날짜 장 마감 시 최종 주가입니다.
+    - **이동평균선(MA)**: 최근 N일간 주가의 평균 흐름입니다. 주가의 진행 방향을 보여줍니다.
+    - **볼린저 밴드**: 주가가 보통 이 밴드(범위) 안에서 움직입니다. 하단에 닿으면 **단기 저점(싸짐)**, 상단에 닿으면 **단기 고점** 신호로 해석합니다.
+    - **거래량**: 하루 동안 거래된 주식 수입니다. 주가가 오를 때 거래량이 커지면 상승 힘이 강합니다.
+    """)
 
 # ==========================================
-# 메인 헤더 & KPI 메트릭 카드
+# 메인 헤더 & AI 주가 종합 진단 바
 # ==========================================
-st.markdown('<div class="main-header">📊 삼성전자 (005930.KS) 시계열 분석 & 예측 대시보드</div>', unsafe_allow_html=True)
-st.markdown(f'<div class="sub-header">조회 기간: <b>{start_date.strftime("%Y-%m-%d")}</b> ~ <b>{end_date.strftime("%Y-%m-%d")}</b> ({len(df)} 거래일 데이터)</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title">📊 삼성전자 (005930.KS) 시계열 분석 & 예측 대시보드</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="sub-title">선택 기간: <b>{start_date.strftime("%Y년 %m월 %d일")}</b> ~ <b>{end_date.strftime("%Y년 %m월 %d일")}</b> (총 {len(df)}개 거래일 데이터)</div>', unsafe_allow_html=True)
 
 if len(df) > 0:
     first_close = df['Close'].iloc[0]
@@ -166,54 +191,97 @@ if len(df) > 0:
     avg_vol = df['Volume'].mean()
     volatility = df['Daily_Return'].std()
 
+    # 동적 주가 진단 메시지 생성 (초보자를 위한 직관적 해석)
+    last_sma20 = df['SMA_20'].iloc[-1] if pd.notna(df['SMA_20'].iloc[-1]) else last_close
+    last_upper = df['Upper_Band'].iloc[-1] if pd.notna(df['Upper_Band'].iloc[-1]) else last_close
+    last_lower = df['Lower_Band'].iloc[-1] if pd.notna(df['Lower_Band'].iloc[-1]) else last_close
+    
+    if last_close > last_upper:
+        status_icon = "🟠"
+        status_title = "단기 과매수(고점) 위험 구간 감지"
+        status_desc = f"현재 주가(<b>{last_close:,.0f}원</b>)가 적정 가격 범위 상한선({last_upper:,.0f}원)을 상회하고 있습니다. 단기 조정(과열 식힘) 가능성에 유의하세요."
+    elif last_close < last_lower:
+        status_icon = "🔵"
+        status_title = "단기 과매도(저점) 반등 기대 구간 감지"
+        status_desc = f"현재 주가(<b>{last_close:,.0f}원</b>)가 적정 가격 범위 하한선({last_lower:,.0f}원) 아래로 과도하게 낮아졌습니다. 저가 매수세에 의한 기술적 반등 가능성이 높습니다."
+    elif last_close > last_sma20:
+        status_icon = "🟢"
+        status_title = "단기 우상향 상승 흐름 유지 중"
+        status_desc = f"현재 주가(<b>{last_close:,.0f}원</b>)가 한 달 평균선({last_sma20:,.0f}원) 위에 위치하여 긍정적인 단기 상승 세력을 유지하고 있습니다."
+    else:
+        status_icon = "🟡"
+        status_title = "단기 조정 및 관망 구간"
+        status_desc = f"현재 주가(<b>{last_close:,.0f}원</b>)가 한 달 평균선({last_sma20:,.0f}원) 밑에 위치하고 있어 신중한 접근이 필요한 횡보/조정 구간입니다."
+
+    st.markdown(f"""
+    <div class="signal-banner">
+        <div class="signal-title">{status_icon} AI 주가 종합 현황: {status_title}</div>
+        <div class="signal-desc">{status_desc}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Key Metrics Cards (5 columns)
     col1, col2, col3, col4, col5 = st.columns(5)
 
     with col1:
         st.metric(
-            label="최근 종가",
+            label="📌 최근 종가",
             value=f"{last_close:,.0f} 원",
             delta=f"{change_pct:+.2f}% (기간 대비)",
             delta_color="normal"
         )
     with col2:
         st.metric(
-            label="기간 최고가",
+            label="🔺 기간 최고가",
             value=f"{max_price:,.0f} 원"
         )
     with col3:
         st.metric(
-            label="기간 최저가",
+            label="🔻 기간 최저가",
             value=f"{min_price:,.0f} 원"
         )
     with col4:
         st.metric(
-            label="일평균 거래량",
-            value=f"{avg_vol/1e6:.2f} M주"
+            label="📊 일평균 거래량",
+            value=f"{avg_vol/1e6:.2f} 백만주"
         )
     with col5:
         st.metric(
-            label="일일 변동성 (표준편차)",
-            value=f"{volatility:.2f}%" if pd.notna(volatility) else "N/A"
+            label="⚡ 일일 변동성 (위험도)",
+            value=f"{volatility:.2f}%" if pd.notna(volatility) else "N/A",
+            help="하루 동안 주가가 변하는 평균적인 등락 폭입니다. 높을수록 위험성이 큽니다."
         )
 
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ==========================================
-# 탭 구성
+# 탭 구성 (직관적인 이름과 수식어 부여)
 # ==========================================
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📈 주가 추이 & 기술적 지표",
-    "📊 수익률 & 요일별 변동성",
-    "🔍 시계열 성분 분해",
-    "🔮 30일 예측 시뮬레이션",
-    "📋 데이터 탐색 & 다운로드"
+    "📈 [1] 주가 차트 & 매매 신호",
+    "📊 [2] 월별/요일별 수익률 패턴",
+    "🔍 [3] 주가 흐름 3단계 쪼개기",
+    "🔮 [4] 미래 30일 예측 시뮬레이션",
+    "📋 [5] 전체 주가 데이터 표"
 ])
 
 # ------------------------------------------
-# Tab 1: 주가 추이 및 기술적 지표
+# Tab 1: 주가 차트 & 매매 신호
 # ------------------------------------------
 with tab1:
-    st.subheader("📈 인터랙티브 주가 추이 차트")
+    st.subheader("📈 인터랙티브 주가 추이 및 평균선 분석")
+
+    # 초보자를 위한 쉽게 보기 상자
+    st.markdown("""
+    <div class="easy-guide-box">
+        <div class="easy-guide-title">💡 이 차트를 읽는 3가지 꿀팁</div>
+        <div style="font-size: 0.9rem; color: #475569; line-height: 1.6;">
+            1. <b>파란선(주가)</b>이 <b>초록선(20일 평균선)</b> 위에 있으면 주가가 상승세입니다.<br>
+            2. <b>회색 음영 영역(볼린저 밴드)</b> 바닥에 주가가 닿을 때 사면 며칠 뒤 반등할 확률이 높습니다.<br>
+            3. 하단의 <b>거래량 바 차트</b>가 평소보다 길게 솟구치면 큰 뉴스나 기관/외국인의 대량 매매가 발생한 날입니다.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
     
     if len(df) == 0:
         st.warning("선택한 날짜 범위에 데이터가 없습니다.")
@@ -225,7 +293,7 @@ with tab1:
             fig = make_subplots(rows=1, cols=1)
 
         # 메인 주가 차트
-        if chart_type == "캔들스틱 (Candlestick)":
+        if chart_type == "캔들스틱 (전문가 보기)":
             fig.add_trace(
                 go.Candlestick(
                     x=df['Date'],
@@ -233,7 +301,7 @@ with tab1:
                     high=df['High'],
                     low=df['Low'],
                     close=df['Close'],
-                    name="주가 (OHLC)",
+                    name="주가 (시가/고가/저가/종가)",
                     increasing_line_color='#22C55E',
                     decreasing_line_color='#EF4444'
                 ),
@@ -245,31 +313,31 @@ with tab1:
                     x=df['Date'],
                     y=df['Close'],
                     mode='lines',
-                    name="종가 (Close)",
-                    line=dict(color='#2563EB', width=2)
+                    name="주가 (종가)",
+                    line=dict(color='#2563EB', width=2.5)
                 ),
                 row=1, col=1
             )
 
         # 이동평균선 오버레이
-        ma_colors = {
-            'SMA 10일': ('SMA_10', '#F59E0B', 'dash'),
-            'SMA 20일': ('SMA_20', '#10B981', 'solid'),
-            'SMA 50일': ('SMA_50', '#8B5CF6', 'dashdot'),
-            'SMA 120일': ('SMA_120', '#EC4899', 'longdash'),
-            'EMA 20일': ('EMA_20', '#06B6D4', 'dot')
+        ma_mapping = {
+            'SMA 10일 (단기)': ('SMA_10', '#F59E0B', 'dash'),
+            'SMA 20일 (한 달)': ('SMA_20', '#10B981', 'solid'),
+            'SMA 50일 (분기)': ('SMA_50', '#8B5CF6', 'dashdot'),
+            'SMA 120일 (반년)': ('SMA_120', '#EC4899', 'longdash'),
+            'EMA 20일 (지수평균)': ('EMA_20', '#06B6D4', 'dot')
         }
 
-        for ma_name in selected_mas:
-            if ma_name in ma_colors:
-                col_name, color_code, dash_style = ma_colors[ma_name]
+        for ma_label in selected_mas:
+            if ma_label in ma_mapping:
+                col_name, color_code, dash_style = ma_mapping[ma_label]
                 fig.add_trace(
                     go.Scatter(
                         x=df['Date'],
                         y=df[col_name],
                         mode='lines',
-                        name=ma_name,
-                        line=dict(color=color_code, width=1.5, dash=dash_style)
+                        name=ma_label,
+                        line=dict(color=color_code, width=1.8, dash=dash_style)
                     ),
                     row=1, col=1
                 )
@@ -281,8 +349,8 @@ with tab1:
                     x=df['Date'],
                     y=df['Upper_Band'],
                     mode='lines',
-                    name="볼린저 상한 (Upper Band)",
-                    line=dict(color='rgba(148, 163, 184, 0.5)', width=1, dash='dot')
+                    name="적정 범위 상한선 (고점 영역)",
+                    line=dict(color='rgba(148, 163, 184, 0.6)', width=1.2, dash='dot')
                 ),
                 row=1, col=1
             )
@@ -291,13 +359,31 @@ with tab1:
                     x=df['Date'],
                     y=df['Lower_Band'],
                     mode='lines',
-                    name="볼린저 하한 (Lower Band)",
-                    line=dict(color='rgba(148, 163, 184, 0.5)', width=1, dash='dot'),
+                    name="적정 범위 하한선 (저점 영역)",
+                    line=dict(color='rgba(148, 163, 184, 0.6)', width=1.2, dash='dot'),
                     fill='tonexty',
                     fillcolor='rgba(148, 163, 184, 0.12)'
                 ),
                 row=1, col=1
             )
+
+        # 최고가 / 최저가 주석 강조
+        max_idx = df['High'].idxmax()
+        min_idx = df['Low'].idxmin()
+        
+        fig.add_annotation(
+            x=df['Date'].iloc[max_idx], y=df['High'].iloc[max_idx],
+            text=f"최고가: {df['High'].iloc[max_idx]:,.0f}원",
+            showarrow=True, arrowhead=2, ax=0, ay=-30,
+            bgcolor="#FEF3C7", bordercolor="#F59E0B", font=dict(size=11, color="#B45309"), row=1, col=1
+        )
+        
+        fig.add_annotation(
+            x=df['Date'].iloc[min_idx], y=df['Low'].iloc[min_idx],
+            text=f"최저가: {df['Low'].iloc[min_idx]:,.0f}원",
+            showarrow=True, arrowhead=2, ax=0, ay=30,
+            bgcolor="#DBEAFE", bordercolor="#3B82F6", font=dict(size=11, color="#1E40AF"), row=1, col=1
+        )
 
         # 하단 거래량 차트
         if show_volume:
@@ -306,7 +392,7 @@ with tab1:
                 go.Bar(
                     x=df['Date'],
                     y=df['Volume'],
-                    name="거래량 (Volume)",
+                    name="하루 거래량 (주)",
                     marker_color=colors,
                     opacity=0.7
                 ),
@@ -322,19 +408,27 @@ with tab1:
             xaxis_rangeslider_visible=False
         )
 
-        fig.update_yaxes(title_text="주가 (KRW)", row=1, col=1)
+        fig.update_yaxes(title_text="주가 (원)", row=1, col=1)
         if show_volume:
-            fig.update_yaxes(title_text="거래량", row=2, col=1)
+            fig.update_yaxes(title_text="거래량 (주)", row=2, col=1)
 
         st.plotly_chart(fig, use_container_width=True)
 
-        st.info("💡 **차트 활용 팁**: 마우스 드래그로 원하는 구간을 확대(Zoom)할 수 있으며, 범례 항목을 클릭하여 특정 지표를 켜거나 끌 수 있습니다.")
-
 # ------------------------------------------
-# Tab 2: 수익률 & 요일별 변동성
+# Tab 2: 월별/요일별 수익률 패턴
 # ------------------------------------------
 with tab2:
-    st.subheader("📊 수익률 및 요일별 변동성 분석")
+    st.subheader("📊 어느 달, 무슨 요일에 주가가 많이 움직일까?")
+    
+    st.markdown("""
+    <div class="easy-guide-box">
+        <div class="easy-guide-title">💡 계절 및 요일 패턴 인사이트</div>
+        <div style="font-size: 0.9rem; color: #475569; line-height: 1.6;">
+            - <b>월별 수익률</b>: 빨간색 바는 주가가 떨어진 달, 파란색 바는 주가가 오른 달입니다.<br>
+            - <b>요일별 변동성</b>: 주말(토/일) 사이 발생하는 미국 증시 뉴스와 글로벌 이슈 때문에 보통 <b>월요일과 금요일</b>의 변동성이 큽니다.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     r_col1, r_col2 = st.columns(2)
 
@@ -352,11 +446,11 @@ with tab2:
             color_continuous_scale=['#EF4444', '#E2E8F0', '#2563EB'],
             color_continuous_midpoint=0
         )
-        fig_m.update_layout(height=400, template="plotly_white", coloraxis_showscale=False)
+        fig_m.update_layout(height=380, template="plotly_white", coloraxis_showscale=False)
         st.plotly_chart(fig_m, use_container_width=True)
 
     with r_col2:
-        st.markdown("#### 🗓️ 요일별 평균 수익률 & 변동성 (표준편차)")
+        st.markdown("#### 🗓️ 요일별 평균 주가 흔들림 (변동성 %)")
         day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
         day_kr = {'Monday': '월요일', 'Tuesday': '화요일', 'Wednesday': '수요일', 'Thursday': '목요일', 'Friday': '금요일'}
         
@@ -372,11 +466,11 @@ with tab2:
             labels={'Day_KR': '요일', 'std': '변동성 (표준편차 %)'},
             color_discrete_sequence=['#8B5CF6']
         )
-        fig_d.update_layout(height=400, template="plotly_white")
+        fig_d.update_layout(height=380, template="plotly_white")
         st.plotly_chart(fig_d, use_container_width=True)
 
     st.markdown("---")
-    st.markdown("#### 📉 일일 수익률 분포 (Histogram & KDE)")
+    st.markdown("#### 📉 하루 주가 상승/하락 폭 분포 (히스토그램)")
     
     valid_returns = df.dropna(subset=['Daily_Return'])
     if len(valid_returns) > 0:
@@ -385,27 +479,36 @@ with tab2:
             x='Daily_Return',
             nbins=40,
             marginal='box',
-            title="일일 수익률 (%) 분포 현황",
             labels={'Daily_Return': '일일 수익률 (%)'},
             color_discrete_sequence=['#3B82F6']
         )
-        fig_hist.update_layout(height=380, template="plotly_white")
+        fig_hist.update_layout(height=360, template="plotly_white")
         st.plotly_chart(fig_hist, use_container_width=True)
-    else:
-        st.warning("일일 수익률 데이터가 부족합니다.")
 
 # ------------------------------------------
-# Tab 3: 시계열 성분 분해
+# Tab 3: 주가 흐름 3단계 쪼개기
 # ------------------------------------------
 with tab3:
-    st.subheader("🔍 시계열 성분 분해 (Seasonal Decomposition)")
+    st.subheader("🔍 실제 주가를 '진짜 추세 + 반복 파동 + 돌발 소음'으로 분해하기")
     
-    decomp_period = st.radio("분해 주기(Period) 선택", options=[5, 10, 20, 30], index=2, horizontal=True, help="20일은 보통 1개월 영업일 주기를 의미합니다.")
+    st.markdown("""
+    <div class="easy-guide-box">
+        <div class="easy-guide-title">💡 주가 분해란 무엇인가요?</div>
+        <div style="font-size: 0.9rem; color: #475569; line-height: 1.6;">
+            주가는 매일 어지럽게 흔들리지만, 그 내부에는 3가지 성분이 섞여 있습니다.<br>
+            1. 📈 <b>추세 (Trend)</b>: 일시적 등락을 제거한 주가의 진짜 장기 방향성<br>
+            2. 🔄 <b>계절성 (Seasonal)</b>: 약 1달(20일) 주기로 반복해서 일어나는 순환 파동<br>
+            3. ⚡ <b>잔차 / 노이즈 (Residual)</b>: 실적 발표, 뉴스 등 예상치 못한 돌발 변수로 인해 튄 구간
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    decomp_period = st.radio("분해 기준 주기 선택", options=[5, 10, 20, 30], index=2, horizontal=True, help="20일은 보통 1개월 영업일 주기를 의미합니다.")
 
     ts_df = df.set_index('Date')['Close'].dropna()
 
     if len(ts_df) < decomp_period * 2:
-        st.error(f"성분 분해를 수행하기에 데이터 포인트가 부족합니다. 최소 {decomp_period * 2}개 이상의 일자가 필요합니다.")
+        st.error(f"성분 분해를 수행하기에 선택한 기간의 데이터 포인트가 부족합니다. 최소 {decomp_period * 2}일 이상을 지정해주세요.")
     else:
         try:
             decomposition = seasonal_decompose(ts_df, model='additive', period=decomp_period)
@@ -414,36 +517,44 @@ with tab3:
                 rows=4, cols=1,
                 shared_xaxes=True,
                 vertical_spacing=0.06,
-                subplot_titles=("1. 관측치 (Observed Price)", "2. 추세 성분 (Trend)", "3. 계절성 성분 (Seasonal)", "4. 잔차 / 노이즈 (Residuals)")
+                subplot_titles=(
+                    "1. 실제 관측 주가 (Observed)",
+                    "2. 📈 진짜 추세 성분 (Trend - 잡음 제거)",
+                    "3. 🔄 주기적 순환 파동 (Seasonal)",
+                    "4. ⚡ 돌발 소음 / 잔차 (Residual)"
+                )
             )
 
             fig_decomp.add_trace(go.Scatter(x=ts_df.index, y=decomposition.observed, mode='lines', line=dict(color='#2563EB', width=1.5)), row=1, col=1)
-            fig_decomp.add_trace(go.Scatter(x=ts_df.index, y=decomposition.trend, mode='lines', line=dict(color='#F59E0B', width=1.5)), row=2, col=1)
+            fig_decomp.add_trace(go.Scatter(x=ts_df.index, y=decomposition.trend, mode='lines', line=dict(color='#F59E0B', width=2.0)), row=2, col=1)
             fig_decomp.add_trace(go.Scatter(x=ts_df.index, y=decomposition.seasonal, mode='lines', line=dict(color='#10B981', width=1.5)), row=3, col=1)
             fig_decomp.add_trace(go.Scatter(x=ts_df.index, y=decomposition.resid, mode='markers', marker=dict(size=4, color='#EF4444')), row=4, col=1)
 
-            fig_decomp.update_layout(height=750, template="plotly_white", showlegend=False)
+            fig_decomp.update_layout(height=720, template="plotly_white", showlegend=False)
             st.plotly_chart(fig_decomp, use_container_width=True)
 
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.success("📈 **추세 (Trend)**\n\n장기적인 방향성을 의미하며 노이즈가 제거된 주가의 본질적 흐름을 나타냅니다.")
-            with c2:
-                st.info("🔄 **계절성 (Seasonal)**\n\n지정된 주기(Period) 동안 반복적으로 나타나는 순환적 파동 패턴입니다.")
-            with c3:
-                st.warning("⚡ **잔차 (Resid)**\n\n추세와 계절성으로 설명되지 않는 돌발 이벤트 및 노이즈 변동성입니다.")
         except Exception as err:
-            st.error(f"시계열 성분 분해 처리 중 오류가 발생했습니다: {err}")
+            st.error(f"시계열 분해 처리 중 오류가 발생했습니다: {err}")
 
 # ------------------------------------------
 # Tab 4: 30일 예측 시뮬레이션
 # ------------------------------------------
 with tab4:
-    st.subheader("🔮 30일 이동평균 베이스라인 예측 시뮬레이션")
-    st.write("사이드바의 **[예측 기간]**, **[추세 기준 일수]**, **[추세 가중치]** 조절 슬라이더를 통해 향후 시나리오를 가상 테스트할 수 있습니다.")
+    st.subheader("🔮 향후 30 영업일 주가 추세 베이스라인 예측")
+    
+    st.markdown("""
+    <div class="easy-guide-box">
+        <div class="easy-guide-title">💡 예측 차트 쉽게 이해하기</div>
+        <div style="font-size: 0.9rem; color: #475569; line-height: 1.6;">
+            - <b>점선 분홍선</b>: 최근 주가 기울기를 바탕으로 계산된 미래 예상 주가입니다.<br>
+            - <b>분홍색 연한 띠</b>: 95% 신뢰 구간입니다. 특별한 악재나 호재가 없다면 주가가 이 띠 범위 안에 머물 가능성이 높습니다.<br>
+            - 사이드바의 <b>[추세 가중치]</b> 슬라이더를 조절하여 상방/하방 가상 시나리오를 자유롭게 테스트해보세요!
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     if len(df) < trend_window:
-        st.error(f"최소 {trend_window}일 이상의 데이터가 필요합니다.")
+        st.error(f"예측을 위해 최소 {trend_window}일 이상의 과거 데이터가 필요합니다.")
     else:
         last_date = df['Date'].max()
         last_close = df['Close'].iloc[-1]
@@ -456,7 +567,7 @@ with tab4:
         future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=forecast_days, freq='B')
         forecast_values = [last_close + (adjusted_slope * (i + 1)) for i in range(forecast_days)]
         
-        # 상/하한 신뢰 구간 가상 생성 (일일 변동성 기준)
+        # 상/하한 신뢰 구간 가상 생성
         daily_return_std = df['Daily_Return'].std()
         if pd.isna(daily_return_std):
             daily_return_std = 1.0
@@ -472,6 +583,20 @@ with tab4:
             'Lower_Bound': lower_bound
         })
 
+        # 요약 예측 메트릭
+        fc_end_price = forecast_values[-1]
+        fc_change_pct = ((fc_end_price - last_close) / last_close) * 100
+        
+        fc_col1, fc_col2, fc_col3 = st.columns(3)
+        with fc_col1:
+            st.metric("🎯 30일 뒤 예상 주가", f"{fc_end_price:,.0f} 원", delta=f"{fc_change_pct:+.2f}%")
+        with fc_col2:
+            st.metric("📈 예상 최고 한계선", f"{upper_bound[-1]:,.0f} 원")
+        with fc_col3:
+            st.metric("📉 예상 최저 지지선", f"{lower_bound[-1]:,.0f} 원")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
         # 시각화
         recent_history = df.tail(90)
         fig_fc = go.Figure()
@@ -480,7 +605,7 @@ with tab4:
             x=recent_history['Date'],
             y=recent_history['Close'],
             mode='lines',
-            name="과거 실제 주가 (Recent Close)",
+            name="실제 주가 (Recent Close)",
             line=dict(color='#2563EB', width=2.5)
         ))
 
@@ -496,7 +621,7 @@ with tab4:
             x=forecast_df['Date'],
             y=forecast_df['Upper_Bound'],
             mode='lines',
-            name="신뢰구간 상한 (+95%)",
+            name="예상 범위 상한 (+95%)",
             line=dict(color='rgba(236, 72, 153, 0.3)', width=1, dash='dot')
         ))
 
@@ -504,83 +629,79 @@ with tab4:
             x=forecast_df['Date'],
             y=forecast_df['Lower_Bound'],
             mode='lines',
-            name="신뢰구간 하한 (-95%)",
+            name="예상 범위 하한 (-95%)",
             line=dict(color='rgba(236, 72, 153, 0.3)', width=1, dash='dot'),
             fill='tonexty',
             fillcolor='rgba(236, 72, 153, 0.1)'
         ))
 
         fig_fc.update_layout(
-            height=500,
-            title=f"삼성전자 향후 {forecast_days} 영업일 베이스라인 시뮬레이션 (일일 추세 기울기: {adjusted_slope:+.1f} 원/일)",
+            height=480,
+            title=f"삼성전자 향후 {forecast_days} 영업일 주가 예측 (일일 추세 기울기: {adjusted_slope:+.1f} 원/일)",
             xaxis_title="날짜 (Date)",
-            yaxis_title="주가 (KRW)",
+            yaxis_title="주가 (원)",
             template="plotly_white",
             hovermode="x unified"
         )
 
         st.plotly_chart(fig_fc, use_container_width=True)
 
-        st.markdown("#### 📄 예측 데이터 명세표")
-        st.dataframe(
-            forecast_df.style.format({
-                'Forecast_Close': '{:,.0f} 원',
-                'Upper_Bound': '{:,.0f} 원',
-                'Lower_Bound': '{:,.0f} 원'
-            }, na_rep='-'),
-            use_container_width=True
-        )
-
         # 예측 결과 CSV 다운로드
         csv_forecast = forecast_df.to_csv(index=False).encode('utf-8-sig')
         st.download_button(
-            label="📥 30일 예측 시뮬레이션 데이터 CSV 다운로드",
+            label="📥 30일 예측 결과 데이터 다운로드 (CSV)",
             data=csv_forecast,
             file_name="samsung_stock_30d_forecast_simulation.csv",
             mime="text/csv"
         )
 
 # ------------------------------------------
-# Tab 5: 데이터 탐색 & 다운로드
+# Tab 5: 전체 주가 데이터 표
 # ------------------------------------------
 with tab5:
-    st.subheader("📋 전체 시계열 데이터 탐색")
+    st.subheader("📋 선택 기간 일별 원본 주가 데이터")
     
     col_d1, col_d2 = st.columns([3, 1])
     with col_d1:
-        st.markdown("##### 🔍 선택 기간 데이터셋 테이블")
+        st.markdown("##### 🔍 상세 데이터 테이블")
         disp_df = df[['Date', 'Open', 'High', 'Low', 'Close', 'Volume', 'SMA_20', 'SMA_50', 'Daily_Return']].copy()
         disp_df['Date'] = disp_df['Date'].dt.strftime('%Y-%m-%d')
         
+        # 한국어 컬럼명으로 직관적 변경
+        disp_df.columns = ['날짜', '시가(원)', '고가(원)', '저가(원)', '종가(원)', '거래량(주)', '20일평균', '50일평균', '수익률(%)']
+        
         st.dataframe(
             disp_df.style.format({
-                'Open': '{:,.0f}',
-                'High': '{:,.0f}',
-                'Low': '{:,.0f}',
-                'Close': '{:,.0f}',
-                'Volume': '{:,.0f}',
-                'SMA_20': '{:,.1f}',
-                'SMA_50': '{:,.1f}',
-                'Daily_Return': '{:+.2f}%'
+                '시가(원)': '{:,.0f}',
+                '고가(원)': '{:,.0f}',
+                '저가(원)': '{:,.0f}',
+                '종가(원)': '{:,.0f}',
+                '거래량(주)': '{:,.0f}',
+                '20일평균': '{:,.1f}',
+                '50일평균': '{:,.1f}',
+                '수익률(%)': '{:+.2f}%'
             }, na_rep='-'),
             use_container_width=True,
             height=450
         )
     with col_d2:
-        st.markdown("##### 📊 요약 통계량")
+        st.markdown("##### 📊 주요 지표 수치 요약")
+        desc_df = df[['Close', 'Volume', 'Daily_Return']].describe()
+        desc_df.columns = ['종가(원)', '거래량(주)', '수익률(%)']
+        desc_df.index = ['개수', '평균', '표준편차', '최소값', '25%', '50%', '75%', '최대값']
         st.dataframe(
-            df[['Close', 'Volume', 'Daily_Return']].describe().style.format('{:,.2f}', na_rep='-'),
+            desc_df.style.format('{:,.2f}', na_rep='-'),
             use_container_width=True
         )
 
     # 필터링 데이터 CSV 다운로드
     csv_filtered = df.to_csv(index=False).encode('utf-8-sig')
     st.download_button(
-        label="📥 필터링된 주가 데이터 전체 CSV 다운로드",
+        label="📥 현재 필터링된 주가 데이터 전체 CSV 다운로드",
         data=csv_filtered,
         file_name=f"samsung_stock_{start_date}_{end_date}.csv",
         mime="text/csv"
     )
 
 st.markdown("---")
-st.caption("© 2026 Samsung Stock Time Series Analytics Dashboard | Powered by Streamlit & Plotly")
+st.caption("© 2026 Samsung Stock Time Series Analytics Dashboard | User-Friendly UX Edition")
