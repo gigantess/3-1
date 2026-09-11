@@ -13,7 +13,9 @@ from analysis_utils import (
     load_and_preprocess_data,
     calculate_technical_indicators,
     decompose_time_series,
-    simple_baseline_forecast
+    simple_baseline_forecast,
+    advanced_time_series_forecast,
+    evaluate_forecast_models
 )
 
 def main():
@@ -113,18 +115,23 @@ def main():
     print(f"Chart 3 saved to {chart3_path}")
 
     # -------------------------------------------------------------
-    # Chart 4: 선형 회귀 기반 베이스라인 30일 예측
+    # Chart 4: 고도화 시계열 예측 (ARIMA & Holt & OLS 비교)
     # -------------------------------------------------------------
-    forecast_df = simple_baseline_forecast(df, forecast_days=30, trend_window=30, method='linear')
+    arima_df = advanced_time_series_forecast(df, forecast_days=30, method='arima')
+    holt_df = advanced_time_series_forecast(df, forecast_days=30, method='holt')
+    ols_df = advanced_time_series_forecast(df, forecast_days=30, method='linear')
     
     fig, ax = plt.subplots(figsize=(14, 6))
     recent_history = df.tail(90)
     
-    ax.plot(recent_history['Date'], recent_history['Close'], label='최근 주가 추이 (관측치)', color='#1f77b4', linewidth=1.8)
-    ax.plot(forecast_df['Date'], forecast_df['Forecast_Close'], label='향후 30 영업일 선형 회귀(OLS) 예측', color='#e377c2', linestyle='--', linewidth=2.0, marker='o', markersize=3)
-    ax.fill_between(forecast_df['Date'], forecast_df['Lower_Bound'], forecast_df['Upper_Bound'], color='#e377c2', alpha=0.15, label='95% 예측 신뢰 구간')
+    ax.plot(recent_history['Date'], recent_history['Close'], label='최근 주가 추이 (관측치)', color='#1f77b4', linewidth=2.0)
+    ax.plot(arima_df['Date'], arima_df['Forecast_Close'], label='ARIMA 모델 예측 (자기회귀)', color='#8b5cf6', linestyle='-', linewidth=2.2, marker='o', markersize=3)
+    ax.plot(holt_df['Date'], holt_df['Forecast_Close'], label='Holt 이중 지수평활 예측', color='#10b981', linestyle='--', linewidth=2.0)
+    ax.plot(ols_df['Date'], ols_df['Forecast_Close'], label='OLS 선형회귀 추세선', color='#f59e0b', linestyle=':', linewidth=1.8)
     
-    ax.set_title("삼성전자 향후 30 영업일 주가 추세 선형 회귀 예측 (OLS Baseline Forecast)", fontsize=16, fontweight='bold', pad=15)
+    ax.fill_between(arima_df['Date'], arima_df['Lower_Bound'], arima_df['Upper_Bound'], color='#8b5cf6', alpha=0.12, label='ARIMA 95% 예측 신뢰 구간')
+    
+    ax.set_title("삼성전자 향후 30 영업일 고도화 시계열 주가 예측 (ARIMA vs Holt vs OLS)", fontsize=16, fontweight='bold', pad=15)
     ax.set_xlabel("날짜 (Date)", fontsize=12)
     ax.set_ylabel("주가 (KRW)", fontsize=12)
     ax.legend(loc='upper left', fontsize=11)
@@ -134,6 +141,11 @@ def main():
     plt.savefig(chart4_path, dpi=300)
     plt.close()
     print(f"Chart 4 saved to {chart4_path}")
+
+    # 백테스팅 성능 평가 출력
+    eval_df = evaluate_forecast_models(df, test_days=30)
+    print("\n[Model Accuracy Backtesting Results (Holdout 30 days)]")
+    print(eval_df.to_string(index=False))
 
     print("Phase 2 analysis and visualization completed successfully!")
 

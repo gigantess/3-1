@@ -11,7 +11,12 @@ from statsmodels.tsa.seasonal import seasonal_decompose
 # src 모듈 경로 추가
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'src')))
 
-from analysis_utils import load_and_preprocess_data, simple_baseline_forecast
+from analysis_utils import (
+    load_and_preprocess_data, 
+    simple_baseline_forecast,
+    advanced_time_series_forecast,
+    evaluate_forecast_models
+)
 
 # Streamlit 페이지 설정
 st.set_page_config(
@@ -163,10 +168,18 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("🔮 30일 예측 조건 조절")
 forecast_method = st.sidebar.selectbox(
     "예측 알고리즘 선택",
-    options=["선형 회귀 추세선 (OLS Linear Regression)", "이동평균 추세 (Moving Average slope)"],
+    options=[
+        "ARIMA (자기회귀 이동평균 - 추천)",
+        "Holt 지수 평활법 (최신 가중 추세)",
+        "선형 회귀 추세선 (OLS Linear)",
+        "이동평균 추세 (Moving Average)"
+    ],
     index=0,
-    help="최소자승 선형 회귀(OLS)는 과거 N일 데이터 전체의 우상향/우하향 모멘텀을 반영하여 평행선 오류를 방지합니다."
+    help="ARIMA와 Holt 지수평활법은 자기회귀 및 최신 가중 추세를 반영하여 높은 정확도를 제공합니다."
 )
+show_backtest = st.sidebar.checkbox("과거 30일 예측 백테스팅 평가(MAPE/RMSE) 표 표시", value=True)
+show_compare_all = st.sidebar.checkbox("모든 예측 모델 추세선 동시 비교 표시", value=False)
+
 forecast_days = st.sidebar.slider("향후 예측 영업일수", min_value=5, max_value=60, value=30, step=5)
 trend_window = st.sidebar.slider("추세 판단에 사용할 과거 일수", min_value=10, max_value=60, value=30, step=5)
 trend_bias = st.sidebar.slider("추세 가중치 (시뮬레이션 조절)", min_value=-2.0, max_value=2.0, value=0.0, step=0.1, help="(+)로 올리면 긍정적 시나리오, (-)로 내리면 보수적 시나리오가 반영됩니다.")
@@ -562,8 +575,16 @@ with tab4:
     if len(df) < trend_window:
         st.error(f"예측을 위해 최소 {trend_window}일 이상의 과거 데이터가 필요합니다.")
     else:
-        method_code = 'linear' if '선형' in forecast_method else 'ma'
-        forecast_df = simple_baseline_forecast(
+        if "ARIMA" in forecast_method:
+            method_code = 'arima'
+        elif "Holt" in forecast_method:
+            method_code = 'holt'
+        elif "선형" in forecast_method:
+            method_code = 'linear'
+        else:
+            method_code = 'ma'
+
+        forecast_df = advanced_time_series_forecast(
             df, 
             forecast_days=forecast_days, 
             trend_window=trend_window, 
@@ -601,7 +622,15 @@ with tab4:
         with fc_col4:
             st.metric("📉 예상 최저 지지선", f"{forecast_df['Lower_Bound'].iloc[-1]:,.0f} 원")
 
-        st.info(f"{trend_color} **산출 추세 방향성**: {trend_status} | 적용 알고리즘: **{forecast_method}** (과거 {trend_window}일 모멘텀 수집)")
+        st.info(f"{trend_color} **산출 추세 방향성**: {trend_status} | 적용 모델: **{forecast_method}**")
+
+        # 과거 백테스팅 성능 평가 표시
+        if show_backtest:
+            with st.expander("📊 과거 30일 백테스팅(Backtesting) 모델별 예측 정확도 비교", expanded=True):
+                eval_df = evaluate_forecast_models(df, test_days=30)
+                if len(eval_df) > 0:
+                    st.markdown("과거 30일 홀드아웃 검증 결과 (**MAPE 오차율 %** 가 낮을수록 우수한 모델입니다):")
+                    st.dataframe(eval_df, use_container_width=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
 
@@ -621,9 +650,30 @@ with tab4:
             x=pd.to_datetime(forecast_df['Date']),
             y=forecast_df['Forecast_Close'],
             mode='lines+markers',
-            name=f"향후 {forecast_days}일 예측 추세선",
+            name=f"선택 모델({forecast_method}) 예측 추세선",
             line=dict(color='#EC4899', width=2.5, dash='dash')
         ))
+
+        # 다중 모델 동시 비교
+        if show_compare_all:
+            for m_name, m_code, m_color in [
+                ("ARIMA 모델", "arima", "#8B5CF6"),
+                ("Holt 지수평활", "holt", "#10B981"),
+                ("OLS 선형회귀", "linear", "#F59E0B"),
+                ("이동평균", "ma", "#64748B")
+            ]:
+                if m_code != method_code:
+                    try:
+                        m_df = advanced_time_series_forecast(df, forecast_days=forecast_days, method=m_code)
+                        fig_fc.add_trace(go.Scatter(
+                            x=pd.to_datetime(m_df['Date']),
+                            y=m_df['Forecast_Close'],
+                            mode='lines',
+                            name=f"비교: {m_name}",
+                            line=dict(color=m_color, width=1.8, dash='dot')
+                        ))
+                    except Exception:
+                        pass
 
         fig_fc.add_trace(go.Scatter(
             x=pd.to_datetime(forecast_df['Date']),
@@ -650,8 +700,8 @@ with tab4:
         p_margin = (max_p - min_p) * 0.1 if max_p != min_p else min_p * 0.05
 
         fig_fc.update_layout(
-            height=500,
-            title=f"삼성전자 향후 {forecast_days} 영업일 주가 예측 (일일 추세 기울기: {adjusted_slope:+.1f} 원/일)",
+            height=520,
+            title=f"삼성전자 향후 {forecast_days} 영업일 주가 예측 시뮬레이션 ({forecast_method})",
             xaxis_title="날짜 (Date)",
             yaxis_title="주가 (원)",
             yaxis=dict(range=[min_p - p_margin, max_p + p_margin]),

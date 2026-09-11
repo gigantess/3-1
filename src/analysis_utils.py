@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 import statsmodels.api as sm
 from statsmodels.tsa.seasonal import seasonal_decompose
+from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.api import Holt
 
 def load_and_preprocess_data(file_path="data/samsung_stock_2024_present.csv"):
     """
@@ -74,10 +76,8 @@ def simple_baseline_forecast(df, forecast_days=30, trend_window=30, method='line
     y = recent_subset['Close'].values
     
     if method == 'linear':
-        # 최소자승법(OLS) 1차 선형 회귀 (기울기, 절편)
         slope, intercept = np.polyfit(x, y, 1)
     elif method == 'ma':
-        # 이동평균 변화율 기반
         slope = (y[-1] - y[0]) / len(y) if len(y) > 1 else 0
         intercept = y[-1] - slope * (len(y) - 1)
     else:
@@ -86,15 +86,10 @@ def simple_baseline_forecast(df, forecast_days=30, trend_window=30, method='line
     last_date = df_clean['Date'].max()
     last_close = df_clean['Close'].iloc[-1]
     
-    # 시뮬레이션 추세 바이어스 적용
     adjusted_slope = slope + (trend_bias * (last_close * 0.001))
-    
     future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=forecast_days, freq='B')
-    
-    # 마지막 종가로부터의 예측 변화
     forecast_values = [last_close + (adjusted_slope * (i + 1)) for i in range(forecast_days)]
     
-    # 회귀 잔차(Residual) 기반 표준 오차 및 95% 신뢰 구간 계산
     y_pred = intercept + slope * x
     residuals = y - y_pred
     std_err = np.std(residuals) if len(residuals) > 1 else (last_close * 0.01)
@@ -111,4 +106,127 @@ def simple_baseline_forecast(df, forecast_days=30, trend_window=30, method='line
         'Lower_Bound': lower_bound
     })
     return forecast_df
+
+def advanced_arima_forecast(df, forecast_days=30, order=(1, 1, 1)):
+    """
+    statsmodels ARIMA 모델을 사용하여 시계열 자기회귀 및 이동평균 오차 기반 향후 주가를 예측합니다.
+    """
+    df_clean = df.dropna(subset=['Close']).copy()
+    if len(df_clean) < 15:
+        raise ValueError("ARIMA 예측을 위해 최소 15개 이상의 데이터가 필요합니다.")
+        
+    ts = df_clean['Close'].values
+    last_date = df_clean['Date'].max()
+    
+    try:
+        model = ARIMA(ts, order=order)
+        res = model.fit()
+        forecast_res = res.get_forecast(steps=forecast_days)
+        forecast_values = forecast_res.predicted_mean
+        conf_int = forecast_res.conf_int(alpha=0.05)
+        
+        lower_bound = conf_int[:, 0]
+        upper_bound = conf_int[:, 1]
+    except Exception as e:
+        return advanced_holt_forecast(df, forecast_days=forecast_days)
+        
+    future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=forecast_days, freq='B')
+    
+    forecast_df = pd.DataFrame({
+        'Date': future_dates,
+        'Forecast_Close': forecast_values,
+        'Upper_Bound': upper_bound,
+        'Lower_Bound': lower_bound
+    })
+    return forecast_df
+
+def advanced_holt_forecast(df, forecast_days=30, damped_trend=True):
+    """
+    Holt's Linear Exponential Smoothing (이중 지수 평활법) 모델 기반 향후 주가 예측
+    """
+    df_clean = df.dropna(subset=['Close']).copy()
+    if len(df_clean) < 10:
+        raise ValueError("Holt 예측을 위해 최소 10개 이상의 데이터가 필요합니다.")
+        
+    ts = df_clean['Close'].values
+    last_date = df_clean['Date'].max()
+    
+    try:
+        model = Holt(ts, initialization_method="estimated", damped_trend=damped_trend)
+        res = model.fit()
+        forecast_values = res.forecast(forecast_days)
+        
+        residuals = res.resid
+        std_err = np.std(residuals) if len(residuals) > 1 else (ts[-1] * 0.01)
+        if std_err == 0:
+            std_err = ts[-1] * 0.01
+            
+        upper_bound = [v + (1.96 * std_err * np.sqrt(1 + (i + 1) / len(ts))) for i, v in enumerate(forecast_values)]
+        lower_bound = [v - (1.96 * std_err * np.sqrt(1 + (i + 1) / len(ts))) for i, v in enumerate(forecast_values)]
+    except Exception as e:
+        return simple_baseline_forecast(df, forecast_days=forecast_days, method='linear')
+        
+    future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=forecast_days, freq='B')
+    
+    forecast_df = pd.DataFrame({
+        'Date': future_dates,
+        'Forecast_Close': forecast_values,
+        'Upper_Bound': upper_bound,
+        'Lower_Bound': lower_bound
+    })
+    return forecast_df
+
+def advanced_time_series_forecast(df, forecast_days=30, trend_window=30, method='arima', trend_bias=0.0):
+    """
+    통합 시계열 예측 엔트리 포인트 (ARIMA, Holt 지수평활, OLS 선형회귀, 이동평균)
+    """
+    if method == 'arima':
+        return advanced_arima_forecast(df, forecast_days=forecast_days)
+    elif method == 'holt':
+        return advanced_holt_forecast(df, forecast_days=forecast_days)
+    else:
+        return simple_baseline_forecast(df, forecast_days=forecast_days, trend_window=trend_window, method=method, trend_bias=trend_bias)
+
+def evaluate_forecast_models(df, test_days=30):
+    """
+    과거 홀드아웃(Backtesting) 검증을 통한 모델별 예측 성능(MAE, RMSE, MAPE %) 평가
+    """
+    df_clean = df.dropna(subset=['Close']).copy()
+    if len(df_clean) < test_days + 30:
+        return pd.DataFrame()
+        
+    train_df = df_clean.iloc[:-test_days]
+    test_df = df_clean.iloc[-test_days:]
+    actuals = test_df['Close'].values
+    
+    methods = {
+        'ARIMA (자기회귀 모델)': 'arima',
+        'Holt 지수 평활법': 'holt',
+        '선형 회귀 (OLS)': 'linear',
+        '이동평균 (MA)': 'ma'
+    }
+    
+    results = []
+    for label, code in methods.items():
+        try:
+            fc_df = advanced_time_series_forecast(train_df, forecast_days=test_days, method=code)
+            preds = fc_df['Forecast_Close'].values[:len(actuals)]
+            
+            mae = np.mean(np.abs(actuals - preds))
+            rmse = np.sqrt(np.mean((actuals - preds) ** 2))
+            mape = np.mean(np.abs((actuals - preds) / actuals)) * 100
+            
+            results.append({
+                '모델명': label,
+                'MAPE (%)': round(mape, 2),
+                'MAE (원)': round(mae, 1),
+                'RMSE (원)': round(rmse, 1)
+            })
+        except Exception:
+            continue
+            
+    res_df = pd.DataFrame(results).sort_values(by='MAPE (%)').reset_index(drop=True)
+    return res_df
+
+
 
